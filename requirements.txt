@@ -1,0 +1,5 @@
+openlineage-python>=1.37.0
+ddtrace>=2.9.0
+flask>=3.0.0
+python-dotenv>=1.0.0
+datadog-api-client>=2.31

@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>OpenLineage Job Simulator</title>
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✈️</text></svg>">
+  {% if dd_rum_application_id and dd_rum_client_token %}
+  <script>
+    (function (h, o, u, n, d) {
+      h = h[d] = h[d] || { q: [], onReady: function (c) { h.q.push(c) } }
+      d = o.createElement(u); d.async = 1; d.src = n; d.crossOrigin = ''
+      n = o.getElementsByTagName(u)[0]; n.parentNode.insertBefore(d, n)
+    })(window, document, 'script', 'https://www.datadoghq-browser-agent.com/us1/v7/datadog-rum.js', 'DD_RUM')
+    window.DD_RUM.onReady(function () {
+      window.DD_RUM.init({
+        clientToken: '{{ dd_rum_client_token }}',
+        applicationId: '{{ dd_rum_application_id }}',
+        site: '{{ dd_site }}',
+        service: '{{ dd_service }}',
+        env: '{{ dd_env }}',
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        trackUserInteractions: true,
+        trackResources: true,
+        trackLongTasks: true,
+        defaultPrivacyLevel: 'mask-user-input',
+        allowedTracingUrls: [
+          (url) => url.startsWith(window.location.origin)
+        ]
+      });
+    })
+  </script>
+  {% endif %}
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1115;
+      color: #e6e6e6;
+    }
+
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .topbar {
+      flex: 0 0 auto;
+      padding: 14px 24px;
+      border-bottom: 1px solid #2a2d34;
+      background: #14161c;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .topbar h1 {
+      font-size: 16px;
+      margin: 0;
+      white-space: nowrap;
+    }
+
+    .body {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 16px;
+      padding: 16px;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      min-height: 0;
+      overflow-y: auto;
+      background: #171a21;
+      border: 1px solid #2a2d34;
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+
+    .main {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .panel {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: #171a21;
+      border: 1px solid #2a2d34;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      flex: 0 0 auto;
+      padding: 14px 20px 10px;
+    }
+
+    .table-scroll {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 0 20px 16px;
+    }
+
+    h2 {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #9aa0aa;
+      margin: 0;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #9aa0aa;
+      margin-bottom: 4px;
+      margin-top: 10px;
+    }
+
+    input[type=text],
+    input[type=number] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      background: #0f1115;
+      border: 1px solid #33363d;
+      color: #e6e6e6;
+      border-radius: 4px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .row3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .slider-row {
+      margin-top: 12px;
+    }
+
+    .slider-row label {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 0;
+    }
+
+    .slider-row output {
+      color: #e6e6e6;
+      font-weight: 600;
+    }
+
+    input[type=range] {
+      width: 100%;
+      margin-top: 4px;
+      accent-color: #632ca6;
+    }
+
+    details.advanced {
+      margin-top: 16px;
+      border-top: 1px solid #2a2d34;
+      padding-top: 10px;
+    }
+
+    details.advanced summary {
+      cursor: pointer;
+      font-size: 12px;
+      color: #9aa0aa;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    details.advanced[open] summary {
+      margin-bottom: 6px;
+    }
+
+    .subhead {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #9aa0aa;
+      margin-top: 20px;
+      padding-top: 14px;
+      border-top: 1px solid #2a2d34;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .button-row button {
+      margin-top: 0;
+    }
+
+    button.stop {
+      background: #5a1f1f;
+    }
+
+    button.stop:hover {
+      background: #7a2a2a;
+    }
+
+    button {
+      background: #632ca6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 18px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 16px;
+    }
+
+    button:hover {
+      background: #7c3fc4;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #171a21;
+      z-index: 1;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 1px solid #2a2d34;
+      white-space: nowrap;
+    }
+
+    th {
+      color: #9aa0aa;
+      font-weight: 500;
+    }
+
+    .status {
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .status-pending {
+      background: #3a3d44;
+      color: #ccc;
+    }
+
+    .status-running {
+      background: #2b4a7a;
+      color: #a8c8ff;
+    }
+
+    .status-COMPLETE {
+      background: #1f4d2e;
+      color: #8fd39e;
+    }
+
+    .status-FAIL {
+      background: #5a1f1f;
+      color: #ff9b9b;
+    }
+
+    .depth-1 td:first-child {
+      padding-left: 28px;
+      color: #b7bcc4;
+    }
+
+    .depth-2 td:first-child {
+      padding-left: 52px;
+      color: #9aa0aa;
+    }
+
+    .banner {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #1c1f27;
+      border: 1px solid #2a2d34;
+      border-radius: 999px;
+      padding: 5px 12px 5px 10px;
+      font-size: 12px;
+      color: #9aa0aa;
+      max-width: 340px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pill b {
+      color: #e6e6e6;
+      font-weight: 600;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #565b66;
+      flex: 0 0 auto;
+    }
+
+    .dot.ok {
+      background: #3fd67f;
+      box-shadow: 0 0 6px #3fd67f99;
+    }
+
+    .dot.bad {
+      background: #ff5c5c;
+      box-shadow: 0 0 6px #ff5c5c99;
+    }
+
+    .dot.warn {
+      background: #ffb020;
+      box-shadow: 0 0 6px #ffb02099;
+    }
+
+    .dot.live {
+      animation: dot-pulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes dot-pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.35;
+      }
+    }
+
+    .err-msg {
+      color: #ff9b9b;
+      font-size: 12px;
+    }
+
+    small.hint {
+      display: block;
+      color: #767b85;
+      margin-top: 2px;
+    }
+
+    .preset-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .preset {
+      margin-top: 0;
+      background: #232631;
+      border: 1px solid #33363d;
+      padding: 6px 14px;
+      font-size: 13px;
+    }
+
+    .preset:hover {
+      background: #2c303d;
+    }
+
+    .preset.active {
+      background: #632ca6;
+      border-color: #632ca6;
+    }
+
+    @media (max-width: 900px) {
+
+      html,
+      body {
+        overflow: auto;
+      }
+
+      .body {
+        grid-template-columns: 1fr;
+        overflow: visible;
+        height: auto;
+      }
+
+      .main {
+        grid-template-rows: auto auto;
+      }
+
+      .sidebar,
+      .table-scroll {
+        overflow: visible;
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <h1>✈️ OpenLineage Job Simulator</h1>
+      <div class="banner">
+        <span id="cron-pill"></span>
+        <span id="banner-pills" class="banner"></span>
+      </div>
+    </header>
+
+    <div class="body">
+      <aside class="sidebar">
+        <h2>Trigger a Request</h2>
+
+        <label>Preset</label>
+        <div class="preset-row">
+          <button type="button" class="preset" onclick="applyPreset('short')">Short</button>
+          <button type="button" class="preset" onclick="applyPreset('medium')">Medium</button>
+          <button type="button" class="preset" onclick="applyPreset('long')">Long</button>
+          <button type="button" class="preset" onclick="applyPreset('intense')">Intense</button>
+        </div>
+
+        <label>Controller namespace</label>
+        <input type="text" id="namespace" value="demo.datadog">
+        <label>Controller job name</label>
+        <input type="text" id="controller_name" value="datadog.controller.request_handler">
+
+        <div class="slider-row">
+          <label>Number of workers <output id="num_workers_val">3</output></label>
+          <input type="range" id="num_workers" value="3" min="0" max="5" step="1" oninput="syncReadout(this)">
+        </div>
+        <div class="slider-row">
+          <label>Sub-tasks per worker <output id="num_tasks_val">2</output></label>
+          <input type="range" id="num_tasks" value="2" min="0" max="5" step="1" oninput="syncReadout(this)">
+        </div>
+        <small class="hint">Each worker fans out to its own sub-tasks -- a 3rd hierarchy level, not just more
+          top-level workers.</small>
+
+        <div class="slider-row">
+          <label>Controller failure rate <output id="controller_failure_rate_val">0%</output></label>
+          <input type="range" id="controller_failure_rate" value="0" min="0" max="100" step="5" data-suffix="%"
+            oninput="syncReadout(this)">
+        </div>
+        <div class="slider-row">
+          <label>Worker failure rate <output id="worker_failure_rate_val">0%</output></label>
+          <input type="range" id="worker_failure_rate" value="0" min="0" max="100" step="5" data-suffix="%"
+            oninput="syncReadout(this)">
+        </div>
+        <div class="slider-row">
+          <label>Task failure rate <output id="task_failure_rate_val">10%</output></label>
+          <input type="range" id="task_failure_rate" value="10" min="0" max="100" step="5" data-suffix="%"
+            oninput="syncReadout(this)">
+        </div>
+        <small class="hint">Drag a failure rate to 100% for a guaranteed failure at that level.</small>
+
+        <div class="checkbox-row"><input type="checkbox" id="fail_controller_on_worker_fail" checked> <label
+            style="margin:0">Controller fails if any worker fails</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="fail_worker_on_task_fail" checked> <label
+            style="margin:0">Worker fails if any of its tasks fail</label></div>
+
+        <details class="advanced">
+          <summary>Advanced timing</summary>
+
+          <div class="row">
+            <div>
+              <label>Controller overhead min (s)</label>
+              <input type="number" id="controller_duration_min" value="5" step="1">
+            </div>
+            <div>
+              <label>Controller overhead max (s)</label>
+              <input type="number" id="controller_duration_max" value="15" step="1">
+            </div>
+          </div>
+          <small class="hint">Prep/intake time before dispatch -- added on top of the wait for workers below, since
+            the controller can't finish before its slowest worker.</small>
+
+          <div class="row">
+            <div>
+              <label>Worker overhead min (s)</label>
+              <input type="number" id="worker_duration_min" value="10" step="1">
+            </div>
+            <div>
+              <label>Worker overhead max (s)</label>
+              <input type="number" id="worker_duration_max" value="20" step="1">
+            </div>
+          </div>
+          <small class="hint">Same deal as the controller: added on top of the wait for this worker's own sub-tasks
+            below.</small>
+
+          <div class="row">
+            <div>
+              <label>Task duration min (s)</label>
+              <input type="number" id="task_duration_min" value="60" step="1">
+            </div>
+            <div>
+              <label>Task duration max (s)</label>
+              <input type="number" id="task_duration_max" value="120" step="1">
+            </div>
+          </div>
+        </details>
+
+        <button onclick="simulate()">Simulate Request</button>
+        <small class="hint" id="sim-hint"></small>
+
+        <div class="subhead">Continuous Mode</div>
+        <div class="row">
+          <div>
+            <label>Interval between requests (s)</label>
+            <input type="number" id="cron_interval_seconds" value="30" min="5" step="5">
+          </div>
+          <div>
+            <label>Run for (min, 0 = until stopped)</label>
+            <input type="number" id="cron_duration_minutes" value="0" min="0" step="1">
+          </div>
+        </div>
+        <div class="button-row">
+          <button onclick="startContinuous()" id="cron-start-btn">Start Continuous</button>
+          <button onclick="stopContinuous()" id="cron-stop-btn" class="stop" style="display:none">Stop</button>
+        </div>
+        <small class="hint" id="cron-status">Not running.</small>
+      </aside>
+
+      <main class="main">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Live Runs</h2>
+          </div>
+          <div class="table-scroll">
+            <table id="live-table">
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Type</th>
+                  <th>Run ID</th>
+                  <th>Status</th>
+                  <th>Elapsed</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>History (persisted)</h2>
+          </div>
+          <div class="table-scroll">
+            <table id="history-table">
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Namespace</th>
+                  <th>Type</th>
+                  <th>Run ID</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th>Started</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+
+    // Task durations are in seconds and stretch up to 2-5 minutes so a run
+    // stays visibly in-flight in Datadog long enough to demo elapsed time.
+    // Controller/worker duration is each level's own pre-dispatch overhead
+    // ONLY -- additive on top of the wait for whatever it dispatches below,
+    // not a total-duration cap, since a dispatcher always blocks on every
+    // child before it can terminate.
+    const PRESETS = {
+      short: {
+        num_workers: 2, num_tasks: 0,
+        controller_duration_min: 2, controller_duration_max: 5,
+        worker_duration_min: 20, worker_duration_max: 40,
+        task_duration_min: 10, task_duration_max: 20,
+        controller_failure_rate: 0, worker_failure_rate: 0, task_failure_rate: 0,
+      },
+      medium: {
+        num_workers: 3, num_tasks: 2,
+        controller_duration_min: 5, controller_duration_max: 15,
+        worker_duration_min: 10, worker_duration_max: 20,
+        task_duration_min: 60, task_duration_max: 120,
+        controller_failure_rate: 0, worker_failure_rate: 0, task_failure_rate: 10,
+      },
+      long: {
+        num_workers: 4, num_tasks: 3,
+        controller_duration_min: 10, controller_duration_max: 30,
+        worker_duration_min: 15, worker_duration_max: 30,
+        task_duration_min: 120, task_duration_max: 210,
+        controller_failure_rate: 0, worker_failure_rate: 5, task_failure_rate: 15,
+      },
+      intense: {
+        num_workers: 5, num_tasks: 4,
+        controller_duration_min: 15, controller_duration_max: 45,
+        worker_duration_min: 20, worker_duration_max: 45,
+        task_duration_min: 150, task_duration_max: 300,
+        controller_failure_rate: 5, worker_failure_rate: 20, task_failure_rate: 50,
+      },
+    };
+
+    function syncReadout(el) {
+      const out = document.getElementById(el.id + '_val');
+      if (!out) return;
+      out.textContent = el.value + (el.dataset.suffix || '');
+    }
+
+    function syncAllReadouts() {
+      document.querySelectorAll('input[type=range]').forEach(syncReadout);
+    }
+
+    function applyPreset(key) {
+      const p = PRESETS[key];
+      if (!p) return;
+      for (const [id, value] of Object.entries(p)) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        if (el.type === 'checkbox') el.checked = value;
+        else el.value = value;
+      }
+      syncAllReadouts();
+      document.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
+      const btn = [...document.querySelectorAll('.preset')].find(b => b.textContent.trim().toLowerCase() === key);
+      if (btn) btn.classList.add('active');
+    }
+
+    function shortId(id) { return id ? id.slice(0, 8) : ''; }
+
+    function statusClass(status) {
+      return 'status status-' + status;
+    }
+
+    function pill(dotClass, label, value, title) {
+      const titleAttr = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
+      return `<span class="pill"${titleAttr}><span class="dot ${dotClass}"></span>${label} <b>${value}</b></span>`;
+    }
+
+    async function refreshBanner() {
+      const res = await fetch('/api/status');
+      const s = await res.json();
+      const el = document.getElementById('banner-pills');
+      el.innerHTML = [
+        pill('', 'site', s.dd_site),
+        pill('', 'transport', s.ol_transport),
+        pill('', 'logs', s.log_ship_mode),
+        pill(s.api_key_set ? 'ok' : 'bad', 'API key', s.api_key_set ? 'set' : 'missing'),
+        pill(s.rum_enabled ? 'ok' : '', 'RUM', s.rum_enabled ? 'enabled' : 'disabled'),
+        pill(s.last_emit_ok ? 'ok' : 'bad', 'last emit', s.last_emit_ok ? 'ok' : 'FAILED', s.last_emit_ok ? '' : (s.last_emit_error || '')),
+      ].join('');
+    }
+
+    function collectForm() {
+      return {
+        namespace: document.getElementById('namespace').value,
+        controller_name: document.getElementById('controller_name').value,
+        num_workers: parseInt(document.getElementById('num_workers').value, 10),
+        num_tasks: parseInt(document.getElementById('num_tasks').value, 10),
+        controller_duration_min: parseFloat(document.getElementById('controller_duration_min').value),
+        controller_duration_max: parseFloat(document.getElementById('controller_duration_max').value),
+        worker_duration_min: parseFloat(document.getElementById('worker_duration_min').value),
+        worker_duration_max: parseFloat(document.getElementById('worker_duration_max').value),
+        task_duration_min: parseFloat(document.getElementById('task_duration_min').value),
+        task_duration_max: parseFloat(document.getElementById('task_duration_max').value),
+        controller_failure_rate: parseFloat(document.getElementById('controller_failure_rate').value),
+        worker_failure_rate: parseFloat(document.getElementById('worker_failure_rate').value),
+        task_failure_rate: parseFloat(document.getElementById('task_failure_rate').value),
+        fail_controller_on_worker_fail: document.getElementById('fail_controller_on_worker_fail').checked,
+        fail_worker_on_task_fail: document.getElementById('fail_worker_on_task_fail').checked,
+      };
+    }
+
+    async function simulate() {
+      const body = collectForm();
+      const res = await fetch('/api/simulate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      document.getElementById('sim-hint').innerText = 'Request dispatched: ' + data.request_id;
+      pollLive();
+    }
+
+    function updateCronStatus(s) {
+      const startBtn = document.getElementById('cron-start-btn');
+      const stopBtn = document.getElementById('cron-stop-btn');
+      const statusEl = document.getElementById('cron-status');
+      const pillEl = document.getElementById('cron-pill');
+      if (s.running) {
+        pillEl.innerHTML = pill('ok live', 'Continuous', `${s.dispatch_count} sent`);
+      } else {
+        pillEl.innerHTML = pill('', 'Continuous', 'off');
+      }
+      if (s.running) {
+        startBtn.style.display = 'none';
+        stopBtn.style.display = '';
+        const elapsed = Math.max(0, Math.round(Date.now() / 1000 - s.started_at));
+        let msg = `Running: ${s.dispatch_count} dispatched, ${elapsed}s elapsed, every ${s.interval_seconds}s`;
+        if (s.deadline) {
+          const remaining = Math.max(0, Math.round(s.deadline - Date.now() / 1000));
+          msg += `, stops in ${remaining}s`;
+        }
+        statusEl.innerText = msg;
+      } else {
+        startBtn.style.display = '';
+        stopBtn.style.display = 'none';
+        statusEl.innerText = s.dispatch_count
+          ? `Stopped after ${s.dispatch_count} dispatched.`
+          : 'Not running.';
+      }
+    }
+
+    async function startContinuous() {
+      const body = collectForm();
+      body.interval_seconds = parseFloat(document.getElementById('cron_interval_seconds').value);
+      const durationMin = parseFloat(document.getElementById('cron_duration_minutes').value);
+      if (durationMin > 0) body.duration_minutes = durationMin;
+      const res = await fetch('/api/schedule/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      updateCronStatus(await res.json());
+    }
+
+    async function stopContinuous() {
+      const res = await fetch('/api/schedule/stop', { method: 'POST' });
+      updateCronStatus(await res.json());
+    }
+
+    async function pollCronStatus() {
+      const res = await fetch('/api/schedule/status');
+      updateCronStatus(await res.json());
+    }
+
+    function depthOf(run, byId, cache) {
+      if (cache.has(run.run_id)) return cache.get(run.run_id);
+      let depth = 0;
+      let cur = run;
+      while (cur.parent_run_id && byId.has(cur.parent_run_id)) {
+        depth += 1;
+        cur = byId.get(cur.parent_run_id);
+      }
+      cache.set(run.run_id, depth);
+      return depth;
+    }
+
+    let _lastLiveCount = 0;
+
+    async function pollLive() {
+      const res = await fetch('/api/live');
+      const data = await res.json();
+      const tbody = document.querySelector('#live-table tbody');
+      tbody.innerHTML = '';
+      const now = Date.now() / 1000;
+      const byId = new Map(data.runs.map(r => [r.run_id, r]));
+      const depthCache = new Map();
+      for (const r of data.runs) {
+        const elapsed = r.started_at ? ((r.ended_at || now) - r.started_at).toFixed(1) + 's' : '-';
+        const depth = depthOf(r, byId, depthCache);
+        const tr = document.createElement('tr');
+        if (depth > 0) tr.className = 'depth-' + Math.min(depth, 2);
+        tr.innerHTML = `
+      <td>${r.name || ''}</td>
+      <td>${r.job_type || ''}</td>
+      <td>${shortId(r.run_id)}</td>
+      <td><span class="${statusClass(r.status)}">${r.status}</span></td>
+      <td>${elapsed}</td>
+    `;
+        tbody.appendChild(tr);
+      }
+      if (data.runs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color:#767b85">No active runs -- click Simulate Request or start Continuous Mode.</td></tr>';
+      }
+      // Something just finished (active count dropped) -- refresh history/banner promptly
+      // instead of waiting for their own independent 5s poll.
+      if (data.runs.length < _lastLiveCount) {
+        refreshHistory();
+        refreshBanner();
+      }
+      _lastLiveCount = data.runs.length;
+    }
+
+    function appendHistoryRow(tbody, run, depth) {
+      const tr = document.createElement('tr');
+      if (depth > 0) tr.className = 'depth-' + Math.min(depth, 2);
+      tr.innerHTML = `
+      <td>${run.name}</td><td>${run.namespace}</td><td>${run.job_type}</td>
+      <td>${shortId(run.run_id)}</td>
+      <td><span class="${statusClass(run.status)}">${run.status}</span></td>
+      <td>${run.duration_seconds ? run.duration_seconds.toFixed(1) + 's' : '-'}</td>
+      <td>${run.started_at || '-'}</td>
+      <td class="err-msg">${run.error_message || ''}</td>
+    `;
+      tbody.appendChild(tr);
+      for (const child of (run.workers || [])) {
+        appendHistoryRow(tbody, child, depth + 1);
+      }
+    }
+
+    async function refreshHistory() {
+      const res = await fetch('/api/history');
+      const data = await res.json();
+      const tbody = document.querySelector('#history-table tbody');
+      tbody.innerHTML = '';
+      for (const c of data.history) {
+        appendHistoryRow(tbody, c, 0);
+      }
+    }
+
+    syncAllReadouts();
+    refreshBanner();
+    refreshHistory();
+    pollCronStatus();
+    pollLive();
+    setInterval(refreshBanner, 5000);
+    setInterval(refreshHistory, 5000);
+    setInterval(pollCronStatus, 2000);
+    setInterval(pollLive, 700);
+  </script>
+</body>
+
+</html>
