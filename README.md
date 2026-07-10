@@ -1,7 +1,7 @@
 # OpenLineage Job Simulator
 
 <p align="center">
-  <img src="assets/openlineage-simulator.png" alt="OpenLineage Job Simulator UI showing a live controller/worker/task fan-out and persisted history" width="900">
+  <img src="assets/openlineage-job-simulator.png" alt="OpenLineage Job Simulator UI showing a live controller/worker/task fan-out and persisted history" width="900">
   <br>
   <sub>Live controller → workers → sub-tasks fan-out, status pills, and persisted run history.</sub>
 </p>
@@ -35,6 +35,11 @@ flowchart TD
 
 ## Quick start
 
+Or, with `make`: `make setup` (creates `.venv`, installs deps, copies
+`.env.example` -> `.env` — remember to set `DD_API_KEY`), then `make run`
+(or `make run-plain` to skip `ddtrace-run`). `make stop` kills a leftover
+background instance. Run `make` with no target to list all of them.
+
 With [`uv`](https://docs.astral.sh/uv/) (recommended):
 
 ```bash
@@ -60,7 +65,7 @@ next launch to the next port instead).
 
 `ddtrace-run` gives automatic trace-ID injection into logs; `python app.py`
 directly still works but loses that correlation. The `--env-file`/
-`dotenv run --` wrapper matters because it loads `.env` *before*
+`dotenv run --` wrapper matters because it loads `.env` _before_
 `ddtrace-run`'s own bootstrap runs — anything ddtrace reads from the
 environment at startup (like `DD_TRACE_AGENT_URL`) won't see a plain
 in-app `load_dotenv()` in time otherwise.
@@ -88,21 +93,21 @@ in-app `load_dotenv()` in time otherwise.
 Environment variables (or `.env`, loaded via `python-dotenv`). Only
 `DD_API_KEY` is required — see `.env.example`.
 
-| Variable                | Default                   | Purpose                                             |
-| ------------------------ | -------------------------- | ---------------------------------------------------- |
-| `DD_API_KEY`            | _(required)_               | Datadog API key                                      |
-| `DD_SITE`               | `datadoghq.com`             | Datadog site                                         |
-| `OL_TRANSPORT`          | `datadog`                   | `datadog` or `http`                                  |
-| `OL_NAMESPACE`          | `demo.datadog`              | Default OpenLineage namespace                        |
-| `OL_PRODUCER`           | placeholder GitHub URL      | `producer` field on events                           |
-| `DD_SERVICE`            | `openlineage-worker-demo`   | Base ddtrace/log service name                        |
-| `DD_ENV`                | `demo`                      | `env` tag across traces/logs/OL tags                 |
-| `DD_LOGS_INJECTION`     | `true`                      | ddtrace trace-ID injection into logs                 |
-| `LOG_SHIP_MODE`         | `agent`                     | `agent` or `http` (see below)                        |
-| `APP_PORT`              | `8080`                      | Local web UI port                                    |
-| `DD_TRACE_AGENT_URL`    | _(optional)_                | Override APM endpoint, e.g. `http://127.0.0.1:8136`  |
-| `DD_RUM_APPLICATION_ID` | _(optional)_                | RUM app ID — UI only inits RUM if set with the token |
-| `DD_RUM_CLIENT_TOKEN`   | _(optional)_                | RUM client token                                     |
+| Variable                | Default                   | Purpose                                              |
+| ----------------------- | ------------------------- | ---------------------------------------------------- |
+| `DD_API_KEY`            | _(required)_              | Datadog API key                                      |
+| `DD_SITE`               | `datadoghq.com`           | Datadog site                                         |
+| `OL_TRANSPORT`          | `datadog`                 | `datadog` or `http`                                  |
+| `OL_NAMESPACE`          | `demo.datadog`            | Default OpenLineage namespace                        |
+| `OL_PRODUCER`           | placeholder GitHub URL    | `producer` field on events                           |
+| `DD_SERVICE`            | `openlineage-worker-demo` | Base ddtrace/log service name                        |
+| `DD_ENV`                | `demo`                    | `env` tag across traces/logs/OL tags                 |
+| `DD_LOGS_INJECTION`     | `true`                    | ddtrace trace-ID injection into logs                 |
+| `LOG_SHIP_MODE`         | `agent`                   | `agent` or `http` (see below)                        |
+| `APP_PORT`              | `8080`                    | Local web UI port                                    |
+| `DD_TRACE_AGENT_URL`    | _(optional)_              | Override APM endpoint, e.g. `http://127.0.0.1:8136`  |
+| `DD_RUM_APPLICATION_ID` | _(optional)_              | RUM app ID — UI only inits RUM if set with the token |
+| `DD_RUM_CLIENT_TOKEN`   | _(optional)_              | RUM client token                                     |
 
 **`DD_TRACE_AGENT_URL`**: use `127.0.0.1`, not `localhost` — on most
 systems `localhost` resolves IPv6 first, and an Agent bound only to IPv4
@@ -115,6 +120,7 @@ curl/browsers do, so the trace just silently drops).
 intake. Both fail fast if `DD_API_KEY` is missing.
 
 **Logs (`LOG_SHIP_MODE`)**:
+
 - `agent` — logs go to stdout only. This ships nowhere by itself; you need
   the Agent separately configured to tail this exact process (it doesn't
   auto-discover a bare local script's stdout the way it would a container).
@@ -143,6 +149,7 @@ app/
   templates/index.html  single-page UI (vanilla JS, polling)
 app.py                  entry point (run with `ddtrace-run python app.py`)
 scripts/stop.sh         find & kill any leftover running instance
+Makefile                setup/run/stop shortcuts (run `make` to list)
 ```
 
 Each level runs on a `ThreadPoolExecutor`, not a task queue, so multiple
