@@ -15,12 +15,23 @@ class JsonFormatter(logging.Formatter):
     top-level attributes); format() JSON-encodes it (used for stdout)."""
 
     def build_payload(self, record: logging.LogRecord) -> dict:
+        # dd.service (from ddtrace's automatic log injection) reflects the
+        # tracer's global default service, not a per-span override -- our
+        # job spans set service=ol_service (e.g. "<service>-controller"),
+        # which is also what the OpenLineage "tags" facet's _dd.ol_service
+        # tells Jobs Monitoring to key on. Read it straight off the active
+        # span so a run's logs carry the same service its job run does.
+        from ddtrace import tracer
+
+        span = tracer.current_span()
+        service = span.service if span and span.service else config.DD_SERVICE
+
         payload = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
-            "service": config.DD_SERVICE,
+            "service": service,
             "env": config.DD_ENV,
         }
 
