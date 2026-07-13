@@ -574,6 +574,7 @@
                   <th>Run ID</th>
                   <th>Status</th>
                   <th>Elapsed</th>
+                  <th>Trace ID</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -597,6 +598,7 @@
                   <th>Duration</th>
                   <th>Started</th>
                   <th>Error</th>
+                  <th>Trace ID</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -608,6 +610,20 @@
   </div>
 
   <script>
+    const DD_SITE = {{ dd_site | tojson }};
+
+    // datadoghq.com/datadoghq.eu/ddog-gov.com serve the web app under an
+    // "app." subdomain; every other regional site (us3, us5, ap1, ap2,
+    // us2.ddog-gov.com, uk1...) serves it directly at the site domain.
+    const APP_SUBDOMAIN_SITES = new Set(['datadoghq.com', 'datadoghq.eu', 'ddog-gov.com']);
+    const DD_APP_HOST = APP_SUBDOMAIN_SITES.has(DD_SITE) ? `app.${DD_SITE}` : DD_SITE;
+
+    function traceLink(traceId) {
+      if (!traceId) return '<span style="color:#767b85">-</span>';
+      const url = `https://${DD_APP_HOST}/apm/traces?query=%40_top_level%3A1%20trace_id%3A${traceId}`;
+      const short = traceId.length > 12 ? traceId.slice(0, 12) + '…' : traceId;
+      return `<a href="${url}" target="_blank" rel="noopener" title="${traceId}" style="color:#a8c8ff">${short}</a>`;
+    }
 
     // Task durations are in seconds and stretch up to 2-5 minutes so a run
     // stays visibly in-flight in Datadog long enough to demo elapsed time.
@@ -809,11 +825,12 @@
       <td>${shortId(r.run_id)}</td>
       <td><span class="${statusClass(r.status)}">${r.status}</span></td>
       <td>${elapsed}</td>
+      <td>${traceLink(r.trace_id)}</td>
     `;
         tbody.appendChild(tr);
       }
       if (data.runs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="color:#767b85">No active runs -- click Simulate Request or start Continuous Mode.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#767b85">No active runs -- click Simulate Request or start Continuous Mode.</td></tr>';
       }
       // Something just finished (active count dropped) -- refresh history/banner promptly
       // instead of waiting for their own independent 5s poll.
@@ -834,6 +851,7 @@
       <td>${run.duration_seconds ? run.duration_seconds.toFixed(1) + 's' : '-'}</td>
       <td>${run.started_at || '-'}</td>
       <td class="err-msg">${run.error_message || ''}</td>
+      <td>${traceLink(run.trace_id)}</td>
     `;
       tbody.appendChild(tr);
       for (const child of (run.workers || [])) {

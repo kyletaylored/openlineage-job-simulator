@@ -1,18 +1,5 @@
-"""Structured JSON logging with ddtrace trace/span injection.
-
-Two shipping modes (LOG_SHIP_MODE):
-  - "agent": logs go to stdout in JSON; the Datadog Agent tails/collects them.
-    The Agent's JSON log processing promotes each key in the JSON message to
-    a top-level facet automatically, so trace correlation works from the
-    nested `dd.trace_id`/`dd.span_id` keys.
-  - "http": no Agent present, so logs are submitted directly to Datadog's
-    Logs API. There is no Agent-side JSON parsing step in this path, so
-    `dd.trace_id`/`dd.span_id` (and everything else) must be sent as actual
-    top-level attributes of the log event -- burying them inside a JSON
-    string under `message` leaves them invisible to trace-log correlation,
-    even though the value itself is technically present somewhere in the
-    payload.
-"""
+"""Structured JSON logging. LOG_SHIP_MODE selects "agent" (stdout, tailed by
+the Datadog Agent) or "http" (shipped directly to the Logs API)."""
 import logging
 import json
 import socket
@@ -24,11 +11,8 @@ from app import config
 
 
 class JsonFormatter(logging.Formatter):
-    """Builds the structured log payload. `format()` (used for the stdout/
-    agent path) JSON-encodes it; `build_payload()` (used for the direct HTTP
-    API path) returns the dict so its keys can be sent as top-level log
-    attributes instead of nested inside a message string.
-    """
+    """build_payload() returns the dict (used for the HTTP API path, as
+    top-level attributes); format() JSON-encodes it (used for stdout)."""
 
     def build_payload(self, record: logging.LogRecord) -> dict:
         payload = {
@@ -44,32 +28,8 @@ class JsonFormatter(logging.Formatter):
             if hasattr(record, attr):
                 payload[attr] = getattr(record, attr)
 
-        # Always compute from the active span directly rather than trusting
-        # a pre-existing record.dd.trace_id -- ddtrace's own automatic log
-        # injection (active under ddtrace-run + DD_LOGS_INJECTION=true) sets
-        # that attribute itself via format_trace_id(), which hex-encodes any
-        # trace ID above 64 bits. That hex value doesn't match anything: APM
-        # displays/searches trace IDs as the plain-decimal low 64 bits even
-        # for a 128-bit trace ID, so a hex-encoded id looks up as "does not
-        # exist." Masking to the low 64 bits ourselves is what actually
-        # matches the ID shown in the Datadog UI.
-        dd_trace_id = None
-        dd_span_id = None
-        try:
-            from ddtrace import tracer
-
-            span = tracer.current_span()
-            if span is not None:
-                dd_trace_id = str(span.trace_id & 0xFFFFFFFFFFFFFFFF)
-                dd_span_id = str(span.span_id)
-        except Exception:
-            pass
-
-        if dd_trace_id is None:
-            dd_trace_id = getattr(record, "dd.trace_id", None)
-        if dd_span_id is None:
-            dd_span_id = getattr(record, "dd.span_id", None)
-
+        dd_trace_id = getattr(record, "dd.trace_id", None)
+        dd_span_id = getattr(record, "dd.span_id", None)
         if dd_trace_id:
             payload["dd.trace_id"] = dd_trace_id
         if dd_span_id:
@@ -87,19 +47,7 @@ class JsonFormatter(logging.Formatter):
 
 
 class DatadogHttpLogHandler(logging.Handler):
-    """Fire-and-forget async shipper to Datadog's Logs API, via the official
-    datadog-api-client (Configuration() reads DD_API_KEY/DD_SITE from the
-    environment directly, same variable names this app already uses).
-
-    Submits each log line as its own single-item HTTPLog batch -- the Logs
-    intake API requires a JSON array of log objects even for one line; a bare
-    object (what a naive `requests.post(json=payload)` would send) is
-    silently rejected. Every JsonFormatter field is passed as a top-level
-    HTTPLogItem attribute (HTTPLogItem accepts arbitrary extra kwargs, even
-    non-identifier keys like "dd.trace_id"), not nested inside `message` --
-    trace-log correlation looks for `dd.trace_id`/`dd.span_id` as attributes
-    of the log event itself.
-    """
+    """Fire-and-forget async shipper to Datadog's Logs API via datadog-api-client."""
 
     def __init__(self, formatter: JsonFormatter):
         super().__init__()
@@ -148,7 +96,7 @@ class DatadogHttpLogHandler(logging.Handler):
 
 def configure_logging():
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    root.setLevel(getattr(logging, config.LOG_LEVEL, logging.INFO))
     root.handlers.clear()
 
     formatter = JsonFormatter()
@@ -163,15 +111,8 @@ def configure_logging():
         else:
             root.addHandler(DatadogHttpLogHandler(formatter))
 
-    # Attaching handlers to the root logger means EVERY logger in the
-    # process funnels through them by default -- including ddtrace's own
-    # internal diagnostics (span lifecycle debug logs, its background
-    # writer's connection errors, etc.) and openlineage-python's init
-    # messages. None of those run inside one of our job spans, so they
-    # legitimately report dd.trace_id=0 -- correct for them, but it pollutes
-    # the shipped demo log stream with noise that looks like a correlation
-    # bug. Keep them off our custom pipeline; they still print via their own
-    # default logging behavior (e.g. DD_TRACE_DEBUG output to stderr).
+    # Keep ddtrace/openlineage's own internal logging off our pipeline --
+    # they still print via their own default handlers.
     logging.getLogger("ddtrace").propagate = False
     logging.getLogger("openlineage").propagate = False
 

@@ -207,6 +207,10 @@ def _run_node(*, name, namespace, job_type, duration_min, duration_max, failure_
         span.set_tag("job.name", name)
         span.set_tag("job.type", job_type)
 
+        dd_trace_id = tracer.get_log_correlation_context()["dd.trace_id"]
+        models.set_trace_id(run_id, dd_trace_id)
+        _update_live(request_id, run_id, trace_id=dd_trace_id)
+
         models.mark_started(run_id, started_at=_iso(started_at))
         _update_live(request_id, run_id, status="running",
                      started_at=started_at)
@@ -222,16 +226,11 @@ def _run_node(*, name, namespace, job_type, duration_min, duration_max, failure_
                                   "job_namespace": namespace, "job_type": job_type},
         )
 
-        # Own overhead/work time. If this job also has children, this is
-        # additive on top of the wait below -- this job can never finish
-        # before its slowest child since it blocks on every child's result.
         time.sleep(random.uniform(duration_min, duration_max))
 
-        # Fan out children concurrently, if configured -- explicit parent-context
-        # payload per child, exactly as a real dispatcher would pass parent job id
-        # to sub-containers. The ddtrace Context is captured and threaded through
-        # the same way, since children run on a different thread than the one that
-        # started this span.
+        # Children run on separate threads, so their trace context is
+        # captured and passed explicitly -- ddtrace doesn't auto-propagate
+        # active spans across thread boundaries.
         child_results = []
         if children_spec and children_spec.get("count", 0) > 0:
             this_trace_context = tracer.current_trace_context()

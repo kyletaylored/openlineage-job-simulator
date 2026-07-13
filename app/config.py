@@ -22,8 +22,8 @@ OL_PRODUCER = os.environ.get(
 ).strip()
 DD_SERVICE = os.environ.get("DD_SERVICE", "openlineage-worker-demo").strip()
 DD_ENV = os.environ.get("DD_ENV", "demo").strip()
-DD_LOGS_INJECTION = _bool(os.environ.get("DD_LOGS_INJECTION"), True)
 LOG_SHIP_MODE = os.environ.get("LOG_SHIP_MODE", "agent").strip().lower()
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
 APP_PORT = int(os.environ.get("APP_PORT", "8080"))
 
 # RUM is optional -- the UI only initializes it when both are set.

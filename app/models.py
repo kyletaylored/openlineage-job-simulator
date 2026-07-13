@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS runs (
     duration_seconds REAL,
     error_message TEXT,
     ol_service TEXT,
-    request_id TEXT
+    request_id TEXT,
+    trace_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runs_request ON runs(request_id);
 CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_run_id);
@@ -40,6 +41,12 @@ def get_conn() -> sqlite3.Connection:
 def init_db():
     conn = get_conn()
     conn.executescript(SCHEMA)
+    # CREATE TABLE IF NOT EXISTS won't add new columns to a demo.db left over
+    # from before trace_id existed -- patch it in so upgrades don't 500 on
+    # the first insert into an old file.
+    existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(runs)")}
+    if "trace_id" not in existing_cols:
+        conn.execute("ALTER TABLE runs ADD COLUMN trace_id TEXT")
     conn.commit()
 
 
@@ -61,6 +68,12 @@ def mark_started(run_id, started_at):
         "UPDATE runs SET status='running', started_at=? WHERE run_id=?",
         (started_at, run_id),
     )
+    conn.commit()
+
+
+def set_trace_id(run_id, trace_id):
+    conn = get_conn()
+    conn.execute("UPDATE runs SET trace_id=? WHERE run_id=?", (trace_id, run_id))
     conn.commit()
 
 
