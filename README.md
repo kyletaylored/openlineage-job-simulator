@@ -150,9 +150,21 @@ the UI just skips it.
 
 See `app/logging_setup.py`'s `JsonFormatter` for the full version.
 
+**Using OpenTelemetry instead of ddtrace:** the attribute names and format are different. Get the current span's context, format `trace_id` as a 32-character lowercase hex string and `span_id` as a 16-character lowercase hex string (OpenTelemetry's native format, no conversion needed), and set them on the record:
+
+```python
+from opentelemetry import trace
+
+span_context = trace.get_current_span().get_span_context()
+record.trace_id = f"{span_context.trace_id:032x}"
+record.span_id = f"{span_context.span_id:016x}"
+```
+
+Datadog recognizes both its own `dd.trace_id`/`dd.span_id` convention and OpenTelemetry's `trace_id`/`span_id` convention, so no renaming is needed — just ship whichever pair your tracer produces as top-level attributes.
+
 ### Job ↔ log correlation
 
-Getting a log to show up against a job run needs a different identifier: a hash computed from that run's OpenLineage run id.
+Getting a log to show up against a job run needs a different identifier: a hash computed from that run's OpenLineage run id. This step doesn't depend on which tracer you use (ddtrace, OpenTelemetry, or none) — it's derived entirely from the run id, not from any trace context.
 
 1. You already have the run id — it's the same value you pass to `Run(runId=...)` when emitting the OpenLineage event.
 2. Hash it with this function:
