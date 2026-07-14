@@ -431,10 +431,15 @@ def start_scheduler(form: dict, interval_seconds: float, duration_minutes: float
     """Start dispatching simulate_request(form) every interval_seconds, on
     a background thread, until stop_scheduler() is called or duration_minutes
     elapses (None/0 means run until stopped). Returns False if already running.
+
+    If form["job_names"] is a non-empty list, each dispatch cycles to the
+    next name (wrapping around) instead of reusing form["controller_name"].
     """
     with _scheduler_lock:
         if _scheduler_state["running"]:
             return False
+
+        job_names = form.pop("job_names", None) or None
 
         stop_event = threading.Event()
         deadline = time.time() + duration_minutes * 60 if duration_minutes else None
@@ -445,11 +450,13 @@ def start_scheduler(form: dict, interval_seconds: float, duration_minutes: float
             "dispatch_count": 0,
             "interval_seconds": interval_seconds,
             "deadline": deadline,
+            "job_names": job_names,
+            "last_job_name": None,
         })
 
     thread = threading.Thread(
         target=_scheduler_loop,
-        args=(form, interval_seconds, deadline, stop_event),
+        args=(form, job_names, interval_seconds, deadline, stop_event),
         daemon=True,
     )
     thread.start()
@@ -465,14 +472,21 @@ def stop_scheduler() -> bool:
         return True
 
 
-def _scheduler_loop(form, interval_seconds, deadline, stop_event):
+def _scheduler_loop(form, job_names, interval_seconds, deadline, stop_event):
+    i = 0
     while not stop_event.is_set():
         if deadline and time.time() >= deadline:
             break
 
-        simulate_request(form)
+        dispatch_form = form
+        if job_names:
+            dispatch_form = {**form, "controller_name": job_names[i % len(job_names)]}
+            i += 1
+
+        simulate_request(dispatch_form)
         with _scheduler_lock:
             _scheduler_state["dispatch_count"] += 1
+            _scheduler_state["last_job_name"] = dispatch_form.get("controller_name")
 
         stop_event.wait(interval_seconds)
 

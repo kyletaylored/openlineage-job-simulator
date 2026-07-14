@@ -553,6 +553,13 @@
             <input type="number" id="cron_duration_minutes" value="0" min="0" step="1">
           </div>
         </div>
+        <label>Job names (comma-separated, cycles each dispatch)</label>
+        <input type="text" id="cron_job_names" placeholder="leave blank to reuse Controller job name above">
+        <div class="preset-row">
+          <button type="button" class="preset" onclick="applyJobNamePreset('etl')">ETL pipelines</button>
+          <button type="button" class="preset" onclick="applyJobNamePreset('ml')">ML pipelines</button>
+          <button type="button" class="preset" onclick="applyJobNamePreset('mixed')">Mixed workloads</button>
+        </div>
         <div class="button-row">
           <button onclick="startContinuous()" id="cron-start-btn">Start Continuous</button>
           <button onclick="stopContinuous()" id="cron-stop-btn" class="stop" style="display:none">Stop</button>
@@ -662,6 +669,18 @@
       },
     };
 
+    const JOB_NAME_PRESETS = {
+      etl: ['etl.orders', 'etl.inventory', 'etl.customer_events'],
+      ml: ['ml.feature_pipeline', 'ml.training', 'ml.batch_scoring'],
+      mixed: ['etl.orders', 'ml.training', 'reporting.daily_summary', 'ingestion.clickstream'],
+    };
+
+    function applyJobNamePreset(key) {
+      const names = JOB_NAME_PRESETS[key];
+      if (!names) return;
+      document.getElementById('cron_job_names').value = names.join(', ');
+    }
+
     function syncReadout(el) {
       const out = document.getElementById(el.id + '_val');
       if (!out) return;
@@ -761,6 +780,9 @@
           const remaining = Math.max(0, Math.round(s.deadline - Date.now() / 1000));
           msg += `, stops in ${remaining}s`;
         }
+        if (s.job_names && s.job_names.length) {
+          msg += ` — cycling ${s.job_names.length} names, last: ${s.last_job_name || '-'}`;
+        }
         statusEl.innerText = msg;
       } else {
         startBtn.style.display = '';
@@ -776,6 +798,9 @@
       body.interval_seconds = parseFloat(document.getElementById('cron_interval_seconds').value);
       const durationMin = parseFloat(document.getElementById('cron_duration_minutes').value);
       if (durationMin > 0) body.duration_minutes = durationMin;
+      const jobNames = document.getElementById('cron_job_names').value
+        .split(',').map(s => s.trim()).filter(Boolean);
+      if (jobNames.length) body.job_names = jobNames;
       const res = await fetch('/api/schedule/start', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
       });

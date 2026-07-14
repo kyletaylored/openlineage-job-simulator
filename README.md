@@ -80,7 +80,9 @@ in-app `load_dotenv()` in time otherwise.
   optional run-for duration, or until you hit Stop) using whatever the
   trigger panel is currently set to — for sustained traffic instead of one
   click at a time. Runs server-side, so it keeps going even if you close
-  the tab.
+  the tab. Optionally cycles through a list of job names each dispatch
+  (with a few example presets) instead of reusing the same controller name
+  every time.
 - **Live run view**: polls status every ~700ms until the request resolves.
 - **History**: persisted to SQLite (`demo.db`), survives a restart, nested
   by hierarchy.
@@ -106,6 +108,8 @@ Environment variables (or `.env`, loaded via `python-dotenv`). Only
 | `LOG_SHIP_MODE`         | `agent`                   | `agent` or `http` (see below)                        |
 | `APP_PORT`              | `8080`                    | Local web UI port                                    |
 | `DD_TRACE_AGENT_URL`    | _(optional)_              | Override APM endpoint, e.g. `http://127.0.0.1:8136`  |
+| `DD_TRACE_PARTIAL_FLUSH_ENABLED` | `true`           | Flush a trace's finished spans before its root span closes |
+| `DD_TRACE_PARTIAL_FLUSH_MIN_SPANS` | `10`           | How many finished spans trigger a partial flush      |
 | `DD_RUM_APPLICATION_ID` | _(optional)_              | RUM app ID — UI only inits RUM if set with the token |
 | `DD_RUM_CLIENT_TOKEN`   | _(optional)_              | RUM client token                                     |
 
@@ -113,6 +117,17 @@ Environment variables (or `.env`, loaded via `python-dotenv`). Only
 systems `localhost` resolves IPv6 first, and an Agent bound only to IPv4
 will hard-refuse that attempt (ddtrace won't retry as IPv4 the way
 curl/browsers do, so the trace just silently drops).
+
+**`DD_TRACE_PARTIAL_FLUSH_MIN_SPANS`**: a controller's span stays open
+until every worker and task it dispatched has finished, so without this
+set low, ddtrace won't flush *any* span in that trace to APM until the
+whole run completes — its default (`300`) is far above what a
+controller + workers + tasks run ever produces. Lowering it means
+already-finished worker/task spans show up in the APM trace while the
+controller is still waiting on the rest. This only affects when spans
+appear in APM — Jobs Monitoring already updates per run in real time,
+since each level emits its OpenLineage `START` event as soon as it
+begins, not after the whole hierarchy finishes.
 
 **Transport (`OL_TRANSPORT`)**: `datadog` uses
 `DatadogTransport`/`DatadogConfig` (requires `openlineage-python>=1.37.0`);
