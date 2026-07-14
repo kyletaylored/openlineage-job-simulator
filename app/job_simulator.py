@@ -138,6 +138,23 @@ def _ol_service_name(job_type: str) -> str:
     return f"{config.DD_SERVICE}-{suffix}"
 
 
+def _jobs_monitoring_id(run_id: str) -> str:
+    """FNV-1a 64-bit hash of an OpenLineage run.runId. Reverse-engineered:
+    Data Jobs Monitoring derives a run's synthetic trace/span id this way,
+    unrelated to whatever real trace/span id our own tracer assigns.
+    Experimental -- used only to test whether tagging a log with this id
+    makes Jobs Monitoring's correlated-logs query find it.
+
+    Not the same as ddtrace.internal.utils.fnv.fnv1_64 -- that's FNV-1
+    (multiply then XOR), verified against real trace ids to produce the
+    wrong value here. This needs FNV-1a (XOR then multiply)."""
+    h = 0xcbf29ce484222325
+    for b in run_id.encode():
+        h ^= b
+        h = (h * 0x100000001b3) % (2 ** 64)
+    return str(h)
+
+
 def _raise_simulated_error(job_name):
     def _inner():
         raise RuntimeError(
@@ -224,6 +241,15 @@ def _run_node(*, name, namespace, job_type, duration_min, duration_max, failure_
         log.info(
             "job started", extra={"run_id": run_id, "job_name": name,
                                   "job_namespace": namespace, "job_type": job_type},
+        )
+        log.info(
+            "job started [jobs-correlation test]",
+            extra={
+                "run_id": run_id, "job_name": name, "job_namespace": namespace,
+                "job_type": job_type,
+                "dd_trace_id_override": _jobs_monitoring_id(root["run_id"]),
+                "dd_span_id_override": _jobs_monitoring_id(run_id),
+            },
         )
 
         time.sleep(random.uniform(duration_min, duration_max))

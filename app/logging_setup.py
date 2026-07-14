@@ -39,8 +39,13 @@ class JsonFormatter(logging.Formatter):
             if hasattr(record, attr):
                 payload[attr] = getattr(record, attr)
 
-        dd_trace_id = getattr(record, "dd.trace_id", None)
-        dd_span_id = getattr(record, "dd.span_id", None)
+        # dd_trace_id_override/dd_span_id_override let a specific log call
+        # supply its own correlation ids instead of the active span's --
+        # used to test tagging a log with Jobs Monitoring's synthetic id
+        # (see job_simulator.py's _jobs_monitoring_id) alongside the normal
+        # real-trace-correlated log line.
+        dd_trace_id = getattr(record, "dd_trace_id_override", None) or getattr(record, "dd.trace_id", None)
+        dd_span_id = getattr(record, "dd_span_id_override", None) or getattr(record, "dd.span_id", None)
         if dd_trace_id:
             payload["dd.trace_id"] = dd_trace_id
         if dd_span_id:
