@@ -24,3 +24,8 @@ demo.db-*
 .vscode/
 .idea/
 .DS_Store
+
+# Internal-only
+*.md
+!README.md
+*_attributes.json
