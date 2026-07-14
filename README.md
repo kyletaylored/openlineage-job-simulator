@@ -136,39 +136,53 @@ matching `service`/`env`/`run_id` as a correlation fallback.
 type) to load the Browser SDK on the trigger page. Leave either blank and
 the UI just skips it.
 
-## Log correlation in your own app
+## Log correlation between Traces and Jobs
 
-Run under `ddtrace-run` with `DD_LOGS_INJECTION=true` (the default) — ddtrace patches Python's logging module so every `LogRecord` already carries `dd.trace_id`/`dd.span_id` for free, no manual span lookups needed. Just read them off the record when building your log payload, and ship them as top-level (not nested) attributes — that's what Datadog's log/trace correlation actually keys on:
+### Trace ↔ log correlation
 
-```python
-payload["dd.trace_id"] = getattr(record, "dd.trace_id", None)
-payload["dd.span_id"] = getattr(record, "dd.span_id", None)
-```
+1. Run the app with `ddtrace-run` and `DD_LOGS_INJECTION=true` (the default) — this makes ddtrace patch Python's logging module so every `LogRecord` automatically carries `dd.trace_id`/`dd.span_id`.
+2. When building your log payload, copy those two fields onto it:
+   ```python
+   payload["dd.trace_id"] = getattr(record, "dd.trace_id", None)
+   payload["dd.span_id"] = getattr(record, "dd.span_id", None)
+   ```
+3. Ship them as top-level attributes, not nested inside the message — that's what Datadog needs in order to link a log line to its trace.
 
 See `app/logging_setup.py`'s `JsonFormatter` for the full version.
 
-Data Jobs Monitoring's own "correlated logs" panel for a custom OpenLineage job run uses a separate correlation mechanism from the APM log correlation above, internal to Datadog and still being confirmed with the product team. Reverse-engineered, unofficial quick hack that works today — tag a log with `dd.trace_id`/`dd.span_id` computed from the run's OpenLineage `run.runId` via FNV-1a 64-bit hashing (root run: `trace_id == span_id == hash(own run_id)`; any descendant: `trace_id = hash(root's run_id)`, `span_id = hash(own run_id)`):
+### Job ↔ log correlation
 
-```python
-def _jobs_monitoring_id(run_id: str) -> str:
-    h = 0xcbf29ce484222325
-    for b in run_id.encode():
-        h ^= b
-        h = (h * 0x100000001b3) % (2 ** 64)
-    return str(h)
+Getting a log to show up against a job run needs a different identifier: a hash computed from that run's OpenLineage run id.
 
-log.info(
-    "job started",
-    extra={
-        "dd_trace_id_override": _jobs_monitoring_id(root_run_id),
-        "dd_span_id_override": _jobs_monitoring_id(run_id),
-    },
-)
-```
+1. You already have the run id — it's the same value you pass to `Run(runId=...)` when emitting the OpenLineage event.
+2. Hash it with this function:
+   ```python
+   def job_correlation_id(run_id: str) -> str:
+       h = 0xcbf29ce484222325
+       for b in run_id.encode():
+           h ^= b
+           h = (h * 0x100000001b3) % (2 ** 64)
+       return str(h)
+   ```
+3. Work out the trace id and span id for the log:
+   - If this run has no parent (it's the top-level job), the trace id and span id are the same value: `job_correlation_id(run_id)`.
+   - If this run has a parent, the trace id comes from the *top-level* run's id, and the span id from *this* run's own id:
+     ```python
+     trace_id = job_correlation_id(root_run_id)
+     span_id = job_correlation_id(run_id)
+     ```
+4. Tag the log with those values instead of the trace/span ids from step 1 (see `app/logging_setup.py`'s `dd_trace_id_override`/`dd_span_id_override` handling):
+   ```python
+   log.info(
+       "job started",
+       extra={
+           "dd_trace_id_override": trace_id,
+           "dd_span_id_override": span_id,
+       },
+   )
+   ```
 
-`run_id`/`root_run_id` here are exactly the OpenLineage `run.runId` values you already pass to `Run(runId=...)` when emitting START/COMPLETE/FAIL events — nothing new to generate. `root_run_id` is that same run id for the top-level job in the hierarchy (itself, if this run has no parent). In this app that's `job_simulator.py`'s `run_id`/`root["run_id"]`, sourced from `openlineage_client.py`'s `new_run_id()`.
-
-This is FNV-1a (XOR the byte in, then multiply) — not the same as `ddtrace.internal.utils.fnv.fnv1_64`, which is classic FNV-1 (multiply, then XOR) and produces the wrong value here. A log can only carry one `dd.trace_id`/`dd.span_id` pair, so tagging it this way trades away correlation to whatever separate trace your own tracer produced for that same log line — see `app/job_simulator.py`'s `_jobs_monitoring_id()` and `app/logging_setup.py`'s override handling for the full implementation.
+A log can only point at one trace at a time, so a log tagged this way won't also correlate to whatever trace your own instrumentation created for that same run. See `app/job_simulator.py`'s `_jobs_monitoring_id()` for the full implementation.
 
 ## Architecture
 
