@@ -91,7 +91,7 @@ Environment variables (or `.env`, loaded via `python-dotenv`). Only `DD_API_KEY`
 - `agent` — logs go to stdout only. This ships nowhere by itself; you need the Agent separately configured to tail this exact process (it doesn't auto-discover a bare local script's stdout the way it would a container).
 - `http` (**recommended** unless you already have Agent log collection set up) — submits each line directly via the official `datadog-api-client` (`LogsApi.submit_log`), authenticated the same way as everything else.
 
-Either mode tags every log line, trace span, and OpenLineage run with matching `service`/`env`/`run_id` as a correlation fallback.
+Either mode tags every log line, trace span, and OpenLineage run with matching `service`/`env`, and every log line also carries `openlineage.run_id` for direct job ↔ log correlation.
 
 **RUM (optional)**: set `DD_RUM_APPLICATION_ID` + `DD_RUM_CLIENT_TOKEN` (create one under **Digital Experience > RUM Applications**, browser/JS type) to load the Browser SDK on the trigger page. Leave either blank and the UI just skips it.
 
@@ -123,37 +123,13 @@ Datadog recognizes both its own `dd.trace_id`/`dd.span_id` convention and OpenTe
 
 ### Job ↔ log correlation
 
-Getting a log to show up against a job run needs a different identifier: a hash computed from that run's OpenLineage run id. This step doesn't depend on which tracer you use (ddtrace, OpenTelemetry, or none) — it's derived entirely from the run id, not from any trace context.
+Datadog officially supports correlating logs with a job run: emit your logs with the OpenLineage run id in the `openlineage.run_id` attribute, set to the same value you pass to `Run(runId=...)` when emitting the OpenLineage event. Datadog uses this attribute to associate the log with the matching job run — no hashing or synthetic trace/span ids needed, and it composes cleanly with real trace ↔ log correlation (a log line can carry both `dd.trace_id`/`dd.span_id` and `openlineage.run_id` at once).
 
-1. You already have the run id — it's the same value you pass to `Run(runId=...)` when emitting the OpenLineage event.
-2. Hash it with this function:
-   ```python
-   def job_correlation_id(run_id: str) -> str:
-       h = 0xcbf29ce484222325
-       for b in run_id.encode():
-           h ^= b
-           h = (h * 0x100000001b3) % (2 ** 64)
-       return str(h)
-   ```
-3. Work out the trace id and span id for the log:
-   - If this run has no parent (it's the top-level job), the trace id and span id are the same value: `job_correlation_id(run_id)`.
-   - If this run has a parent, the trace id comes from the _top-level_ run's id, and the span id from _this_ run's own id:
-     ```python
-     trace_id = job_correlation_id(root_run_id)
-     span_id = job_correlation_id(run_id)
-     ```
-4. Tag the log with those values instead of the trace/span ids from step 1 (see `app/logging_setup.py`'s `dd_trace_id_override`/`dd_span_id_override` handling):
-   ```python
-   log.info(
-       "job started",
-       extra={
-           "dd_trace_id_override": trace_id,
-           "dd_span_id_override": span_id,
-       },
-   )
-   ```
+```python
+log.info("job started", extra={"run_id": run_id})
+```
 
-A log can only point at one trace at a time, so a log tagged this way won't also correlate to whatever trace your own instrumentation created for that same run. See `app/job_simulator.py`'s `_jobs_monitoring_id()` for the full implementation.
+See `app/logging_setup.py`'s `JsonFormatter`, which ships `record.run_id` as the top-level `openlineage.run_id` attribute. In the log search UI/query language this attribute is referenced with a leading `@` (e.g. `@openlineage.run_id:<runId>`) — that's Datadog's syntax for querying a custom attribute, not part of the attribute's actual key in the log payload.
 
 ## Architecture
 
@@ -178,7 +154,7 @@ Each level runs on a `ThreadPoolExecutor`, not a task queue, so multiple simulat
 1. Drag a failure rate slider to 100% and click **Simulate Request**.
 2. In **Jobs Monitoring**, open the `FAIL`'d run's `errorMessage` facet (message + real Python stack trace).
 3. Pivot to the **APM trace** via the `_dd.ol_service` tag / matching service name + `run_id` tag.
-4. From the trace, pivot to the **log line** for that failure — same `dd.trace_id`/`dd.span_id`, plus matching `run_id`/`service`/`env`.
+4. From either the job run or the trace, pivot to the **log line** for that failure — matched via `openlineage.run_id` (`@openlineage.run_id` in log search), plus `dd.trace_id`/`dd.span_id` and matching `service`/`env`.
 
 ## Notes
 

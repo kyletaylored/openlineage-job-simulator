@@ -35,17 +35,22 @@ class JsonFormatter(logging.Formatter):
             "env": config.DD_ENV,
         }
 
-        for attr in ("run_id", "job_name", "job_namespace", "job_type"):
+        for attr in ("job_name", "job_namespace", "job_type"):
             if hasattr(record, attr):
                 payload[attr] = getattr(record, attr)
 
-        # dd_trace_id_override/dd_span_id_override let a specific log call
-        # supply its own correlation ids instead of the active span's --
-        # used to test tagging a log with Jobs Monitoring's synthetic id
-        # (see job_simulator.py's _jobs_monitoring_id) alongside the normal
-        # real-trace-correlated log line.
-        dd_trace_id = getattr(record, "dd_trace_id_override", None) or getattr(record, "dd.trace_id", None)
-        dd_span_id = getattr(record, "dd_span_id_override", None) or getattr(record, "dd.span_id", None)
+        # Datadog associates a log with its job run via this attribute --
+        # set to the same runId passed to Run(runId=...) on the OpenLineage
+        # event. The "openlineage.run_id" key is the literal attribute name;
+        # the "@" seen in Datadog's docs/search syntax (@openlineage.run_id)
+        # is just how the log search UI references a custom attribute, not
+        # part of the key itself. See https://docs.datadoghq.com/data_jobs/.
+        run_id = getattr(record, "run_id", None)
+        if run_id:
+            payload["openlineage.run_id"] = run_id
+
+        dd_trace_id = getattr(record, "dd.trace_id", None)
+        dd_span_id = getattr(record, "dd.span_id", None)
         if dd_trace_id:
             payload["dd.trace_id"] = dd_trace_id
         if dd_span_id:
