@@ -24,6 +24,16 @@ ENVIRONMENT = os.environ.get(
     "AZUREML_SIM_ENVIRONMENT", "azureml:openlineage-job-simulator@latest")
 COMPUTE = os.environ.get("AZUREML_SIM_COMPUTE", "sim-cluster")
 
+# Experimental: datadog-init (see environment/Dockerfile) is not
+# documented/supported for Azure ML job containers -- only Container
+# Apps/App Service. It's wired in here as a command-string prefix rather
+# than a Dockerfile ENTRYPOINT, since Azure ML likely execs a step's
+# `command:` directly. Treat its output as unverified until smoke-tested.
+# Set AZUREML_SIM_USE_SERVERLESS_INIT=false to fall back to plain library
+# calls with no in-container agent at all.
+_USE_SERVERLESS_INIT = os.environ.get(
+    "AZUREML_SIM_USE_SERVERLESS_INIT", "true").strip().lower() in ("1", "true", "yes", "on")
+
 # Same knobs as .env.example, minus DD_API_KEY (resolved separately, see
 # _resolve_dd_api_key -- never checked into a component spec or Dockerfile).
 _BASE_ENV_VARS = {
@@ -34,11 +44,20 @@ _BASE_ENV_VARS = {
     "OL_NAMESPACE": os.environ.get("OL_NAMESPACE", "demo.datadog.azureml"),
     "OL_PRODUCER": os.environ.get(
         "OL_PRODUCER", "https://github.com/datadog/openlineage-do-jobs"),
-    # No Datadog Agent runs on AmlCompute, so there's nothing to tail
-    # stdout -- ship logs directly to the Logs API instead.
-    "LOG_SHIP_MODE": "http",
+    # datadog-init captures each step's stdout and forwards it itself, so
+    # LOG_SHIP_MODE=agent (stdout only) avoids double-shipping through our
+    # own HTTP handler. Falls back to direct HTTP shipping if serverless-init
+    # is disabled, since then nothing else is tailing stdout.
+    "LOG_SHIP_MODE": "agent" if _USE_SERVERLESS_INIT else "http",
     "LOG_LEVEL": os.environ.get("LOG_LEVEL", "INFO"),
 }
+
+
+def _wrap(cmd: str) -> str:
+    """Prefixes a step's command with the datadog-init wrapper, when enabled."""
+    if not _USE_SERVERLESS_INIT:
+        return cmd
+    return f"/app/datadog-init {cmd}"
 
 
 def _resolve_dd_api_key() -> dict:
@@ -59,7 +78,7 @@ def _start_component(role_label: str):
         name=f"sim_{role_label}_start",
         display_name=f"{role_label} start",
         environment=ENVIRONMENT,
-        command=(
+        command=_wrap(
             "python -m azureml.steps.run_node_start "
             "--namespace ${{inputs.namespace}} --name ${{inputs.name}} "
             "--run-id ${{inputs.run_id}} --job-type ${{inputs.job_type}} "
@@ -88,7 +107,7 @@ def _task_component():
         name="sim_task",
         display_name="task",
         environment=ENVIRONMENT,
-        command=(
+        command=_wrap(
             "python -m azureml.steps.task_entrypoint "
             "--namespace ${{inputs.namespace}} --name ${{inputs.name}} "
             "--run-id ${{inputs.run_id}} "
@@ -128,7 +147,7 @@ def _finalize_component(role_label: str, child_role_label: str, num_children: in
         name=f"sim_{role_label}_finalize_{num_children}",
         display_name=f"{role_label} finalize ({num_children} children)",
         environment=ENVIRONMENT,
-        command=(
+        command=_wrap((
             "python -m azureml.steps.run_node_finalize "
             "--namespace ${{inputs.namespace}} --name ${{inputs.name}} "
             "--run-id ${{inputs.run_id}} --job-type ${{inputs.job_type}} "
@@ -140,7 +159,7 @@ def _finalize_component(role_label: str, child_role_label: str, num_children: in
             "$[[--force-fail]] $[[--fail-on-child-fail]] "
             f"{child_flags} "
             "--status-out ${{outputs.status_out}}"
-        ).strip(),
+        ).strip()),
         inputs={
             "namespace": Input(type="string"),
             "name": Input(type="string"),

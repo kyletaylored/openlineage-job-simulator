@@ -2,7 +2,7 @@
 
 A demo job pipeline that fans a controller out to N workers, each of which fans out to M tasks, running as real Azure Machine Learning pipeline jobs — every node is its own Azure ML job with a native parent/child relationship in Studio's job graph — while emitting OpenLineage events and correlated logs to Datadog Jobs Monitoring.
 
-**Scope: OpenLineage + Logs only.** APM distributed tracing (ddtrace spans connected across separate Azure ML job containers) is not implemented here — it's a follow-up phase. No ddtrace spans are opened by any script in this directory; `dd.trace_id`/`dd.span_id` log fields simply won't appear on logs from this path (that's expected, not a bug).
+**Scope: OpenLineage + Logs only.** APM distributed tracing (ddtrace spans connected across separate Azure ML job containers) is not implemented here — it's a follow-up phase. No ddtrace spans are opened by any script in this directory; `dd.trace_id`/`dd.span_id` log fields simply won't appear on logs from this path (that's expected, not a bug). Each step's container does run Datadog's `serverless-init` as an experimental add-on (see below) — that's an unverified log/metrics/trace-forwarding path, not a substitute for the deferred distributed-tracing work.
 
 ## How it works
 
@@ -115,12 +115,30 @@ python -m azureml.cli --num-workers 2 --num-tasks 2
 
 Prints the Azure ML pipeline job name and the controller's OpenLineage `run_id`. Pass `--task-failure-rate 100` (default `fail_worker_on_task_fail` is `True`) to exercise the FAIL/cascade path end-to-end. See `cli.py --help` for the full set of flags (durations, failure rates, force-fail switches per level).
 
+## Using the Studio portal (ml.azure.com)
+
+There's no "submit a new job" button for this pipeline in Studio, since `submit_pipeline.py` builds the entire DAG dynamically in Python at submission time — worker/task counts vary per request, which changes each `*_finalize` step's input signature. Studio's native job-creation UI only works against pre-registered, fixed-signature pipeline/component assets, which this isn't. Triggering always goes through `python -m azureml.cli`.
+
+Once a job has been submitted at least once, the portal is useful for:
+
+- **Jobs → your pipeline job** — the live DAG, per-step status, logs, and duration.
+- **Resubmit** — reruns a completed/failed job with the same parameters and topology as a new run.
+- **Cancel** a running job, or download a specific step's logs.
+
 ## Verifying it worked
 
 1. **Azure ML Studio** — open the pipeline job. The graph should show one `controller_start`/`controller_finalize` pair, one `*_start`/`*_finalize` pair per worker, and one leaf step per task. `az ml job show -n <job-name>` confirms overall status.
 2. **Datadog Jobs Monitoring** — search the controller's `run_id` printed by `cli.py`; the controller → worker → task hierarchy should render via the `parent`/`root` OpenLineage facets.
 3. **Datadog Logs** — search `@openlineage.run_id:<runId>` for any specific step's run_id; matching log lines should carry `azureml.job_name`, letting you jump to that step's exact Studio job page.
 4. **Failure path** — resubmit with `--task-failure-rate 100`; confirm the `worker*_finalize` steps read the aggregated task statuses correctly and emit `FAIL` with the `error_facet` traceback, and that it propagates to `controller_finalize` (pass `--no-fail-controller-on-worker-fail` to disable the cascade).
+
+## Experimental: Datadog serverless-init
+
+Every step's container runs [`datadog-init`](https://docs.datadoghq.com/serverless/azure_container_apps/) as a process wrapper — the Dockerfile copies the binary in from `datadog/serverless-init:1`, and `submit_pipeline.py` prefixes each step's command with it (e.g. `/app/datadog-init python -m azureml.steps.run_node_start ...`), controlled by `AZUREML_SIM_USE_SERVERLESS_INIT` (defaults to `true`; set to `false` to disable and fall back to plain library calls).
+
+**This is not documented or supported by Datadog for Azure ML** — only Container Apps and App Service Linux containers are. It's wired in as a command prefix rather than a Dockerfile `ENTRYPOINT` because Azure ML likely execs a step's `command:` directly, and may not honor an image's own `ENTRYPOINT`. Conceptually it should fit reasonably well — `datadog-init` is built for short-lived, invocation-style processes that start, do work, flush telemetry, and exit, which is close to a batch job step's lifecycle — but treat its behavior (env var propagation, flush-on-exit timing, whether it survives a job timeout/kill) as unverified until smoke-tested against a real run.
+
+Because `datadog-init` captures and forwards each step's stdout itself, `LOG_SHIP_MODE` is automatically set to `agent` (stdout only) instead of `http` when serverless-init is enabled, to avoid shipping the same logs twice.
 
 ## Deferred: APM distributed tracing
 
