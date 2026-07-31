@@ -2,6 +2,7 @@
 the Datadog Agent) or "http" (shipped directly to the Logs API)."""
 import logging
 import json
+import os
 import socket
 import threading
 import time
@@ -48,6 +49,13 @@ class JsonFormatter(logging.Formatter):
         run_id = getattr(record, "run_id", None)
         if run_id:
             payload["openlineage.run_id"] = run_id
+
+        # Set only inside an Azure ML job container (see azureml/steps/) --
+        # lets log search pivot to the specific Studio job page, the same
+        # way "openlineage.run_id" pivots to Jobs Monitoring.
+        aml_job_name = os.environ.get("AZUREML_RUN_ID")
+        if aml_job_name:
+            payload["azureml.job_name"] = aml_job_name
 
         dd_trace_id = getattr(record, "dd.trace_id", None)
         dd_span_id = getattr(record, "dd.span_id", None)

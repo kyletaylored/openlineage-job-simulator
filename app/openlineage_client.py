@@ -63,21 +63,28 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def job_facets(job_type: str, ol_service: str) -> dict:
-    """Required jobType + tags facets for every job."""
+def job_facets(job_type: str, ol_service: str, aml_job_name: str = None) -> dict:
+    """Required jobType + tags facets for every job. aml_job_name, when set,
+    adds a cross-reference tag so a run in Datadog can be pivoted back to its
+    Azure ML Studio job page (see AZUREML_RUN_ID in azureml/steps/common.py)."""
+    tags = [
+        tags_job.TagsJobFacetFields(
+            key="_dd.ol_service", value=ol_service, source="DATADOG_DEMO"
+        )
+    ]
+    if aml_job_name:
+        tags.append(
+            tags_job.TagsJobFacetFields(
+                key="azureml.job_name", value=aml_job_name, source="AZURE_ML"
+            )
+        )
     return {
         "jobType": job_type_job.JobTypeJobFacet(
             processingType="BATCH",
             integration="datadog-demo",
             jobType=job_type,
         ),
-        "tags": tags_job.TagsJobFacet(
-            tags=[
-                tags_job.TagsJobFacetFields(
-                    key="_dd.ol_service", value=ol_service, source="DATADOG_DEMO"
-                )
-            ]
-        ),
+        "tags": tags_job.TagsJobFacet(tags=tags),
     }
 
 
@@ -118,10 +125,10 @@ DEFAULT_OUTPUT = ("snowflake://demo-org-demo-account",
 
 def emit_start(client: OpenLineageClient, *, namespace: str, name: str, run_id: str,
                job_type: str, ol_service: str, run_facets: dict = None,
-               inputs=None, outputs=None):
+               inputs=None, outputs=None, aml_job_name: str = None):
     run_facets = run_facets or {}
     job = Job(namespace=namespace, name=name,
-              facets=job_facets(job_type, ol_service))
+              facets=job_facets(job_type, ol_service, aml_job_name))
     run = Run(runId=run_id, facets=run_facets)
     inputs = inputs or [make_dataset(*DEFAULT_INPUT)]
     outputs = outputs or [make_dataset(*DEFAULT_OUTPUT)]
@@ -140,10 +147,11 @@ def emit_start(client: OpenLineageClient, *, namespace: str, name: str, run_id: 
 
 
 def emit_terminal(client: OpenLineageClient, *, namespace: str, name: str, run_id: str,
-                  job_type: str, ol_service: str, state: str, run_facets: dict = None):
+                  job_type: str, ol_service: str, state: str, run_facets: dict = None,
+                  aml_job_name: str = None):
     run_facets = run_facets or {}
     job = Job(namespace=namespace, name=name,
-              facets=job_facets(job_type, ol_service))
+              facets=job_facets(job_type, ol_service, aml_job_name))
     run = Run(runId=run_id, facets=run_facets)
     event_state = {
         "COMPLETE": RunState.COMPLETE,
