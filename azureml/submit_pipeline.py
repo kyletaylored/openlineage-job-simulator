@@ -61,16 +61,28 @@ def _wrap(cmd: str) -> str:
 
 
 def _resolve_dd_api_key() -> dict:
-    """Resolve DD_API_KEY from the workspace's Key Vault rather than a
-    literal in any checked-in file -- see azureml/README.md."""
-    from azure.keyvault.secrets import SecretClient
+    """Resolve DD_API_KEY, preferring the workspace's Key Vault. Falls back
+    to the DD_API_KEY environment variable (e.g. from azureml/.env, gitignored)
+    if AZUREML_SIM_KEYVAULT_URL isn't set -- convenient for local iteration,
+    but Key Vault is recommended so the key never has to live in a plaintext
+    file you could accidentally commit."""
+    vault_url = os.environ.get("AZUREML_SIM_KEYVAULT_URL", "").strip()
+    if vault_url:
+        from azure.keyvault.secrets import SecretClient
 
-    vault_url = os.environ["AZUREML_SIM_KEYVAULT_URL"]
-    secret_name = os.environ.get(
-        "AZUREML_SIM_DD_API_KEY_SECRET", "DD-API-KEY")
-    client = SecretClient(vault_url=vault_url,
-                           credential=DefaultAzureCredential())
-    return {"DD_API_KEY": client.get_secret(secret_name).value}
+        secret_name = os.environ.get(
+            "AZUREML_SIM_DD_API_KEY_SECRET", "DD-API-KEY")
+        client = SecretClient(vault_url=vault_url,
+                               credential=DefaultAzureCredential())
+        return {"DD_API_KEY": client.get_secret(secret_name).value}
+
+    api_key = os.environ.get("DD_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError(
+            "Set AZUREML_SIM_KEYVAULT_URL (recommended, see azureml/README.md) "
+            "or DD_API_KEY (e.g. in azureml/.env) before submitting a pipeline."
+        )
+    return {"DD_API_KEY": api_key}
 
 
 def _start_component(role_label: str):

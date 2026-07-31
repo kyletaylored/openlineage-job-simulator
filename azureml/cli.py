@@ -10,6 +10,13 @@ AZUREML_SIM_WORKSPACE, and AZUREML_SIM_KEYVAULT_URL to be set (see
 azureml/README.md), plus being logged in via `az login` (DefaultAzureCredential).
 """
 import argparse
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Loaded explicitly (rather than relying on app.config's load_dotenv() import
+# side-effect) so this works regardless of import order or cwd.
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from azureml.plan import build_request_plan
 from azureml.submit_pipeline import submit

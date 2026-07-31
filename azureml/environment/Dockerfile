@@ -4,7 +4,10 @@
 # create` invocation.
 FROM datadog/serverless-init:1 AS dd-init
 
-FROM mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04
+# ubuntu24.04, not ubuntu20.04: datadog-init needs glibc >= 2.32/2.34, which
+# ubuntu20.04's glibc 2.31 doesn't satisfy (confirmed by a failed smoke-test
+# run -- see "Experimental: Datadog serverless-init" in README.md).
+FROM mcr.microsoft.com/azureml/openmpi5.0-ubuntu24.04
 
 WORKDIR /app
 

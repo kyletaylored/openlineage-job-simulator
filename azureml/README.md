@@ -11,23 +11,29 @@ A demo job pipeline that fans a controller out to N workers, each of which fans 
 - Controller and worker nodes each run as two Azure ML steps: `*_start` emits the OpenLineage START event and sleeps to simulate its own duration, then exits; `*_finalize` runs once all of that node's children have completed, aggregates their pass/fail status, rolls its own random failure rate, and emits the terminal OpenLineage event. Tasks are single-step leaf nodes: start, simulated work, and terminal event all in one script.
 - Azure ML's own job history (`az ml job list`, Studio's job graph) is the system of record for run status in this pipeline; Datadog is the system of record for job-run semantics via OpenLineage.
 
+**Execution order is not enforced except where a real data dependency exists.** Azure ML only sequences steps that consume each other's outputs. `task` → `*_finalize` is a real dependency (`task_step.outputs.status_out` feeds a `child_N` input), so Azure ML waits for all tasks before running a worker's finalize step, and Studio's Designer view draws that edge. `controller_start` → `worker_start` and `worker_start` → `task` are **not** real dependencies — those steps only receive literal values decided up front by `azureml/plan.py` (namespace, names, pre-generated run_ids), not another step's output — so Azure ML is free to run them concurrently, and Studio's Designer view shows `*_start` steps as disconnected boxes with no incoming/outgoing edges. This is expected, not a bug: a worker's OpenLineage START event can land in Datadog before or during the controller's, unlike the original Flask app's strictly sequential fan-out. The OpenLineage `parent`/`root` facets still correctly represent the logical hierarchy in Datadog regardless of actual execution order.
+
 ```mermaid
 flowchart TD
-    CS[controller_start] --> W0S[worker_0 start]
-    CS --> W1S[worker_1 start]
+    CS[controller_start]
+    W0S[worker_0 start]
+    W1S[worker_1 start]
 
-    W0S --> T0[task_0]
-    W0S --> T1[task_1]
-    T0 --> W0F[worker_0 finalize]
-    T1 --> W0F
+    CS -. no dependency, runs concurrently .-> W0S
+    CS -. no dependency, runs concurrently .-> W1S
 
-    W1S --> T2[task_2]
-    W1S --> T3[task_3]
-    T2 --> W1F[worker_1 finalize]
-    T3 --> W1F
+    W0S -. no dependency, runs concurrently .-> T0[task_0]
+    W0S -. no dependency, runs concurrently .-> T1[task_1]
+    T0 -- status_out --> W0F[worker_0 finalize]
+    T1 -- status_out --> W0F
 
-    W0F --> CF[controller_finalize]
-    W1F --> CF
+    W1S -. no dependency, runs concurrently .-> T2[task_2]
+    W1S -. no dependency, runs concurrently .-> T3[task_3]
+    T2 -- status_out --> W1F[worker_1 finalize]
+    T3 -- status_out --> W1F
+
+    W0F -- status_out --> CF[controller_finalize]
+    W1F -- status_out --> CF
 
     CS -.OpenLineage START.-> OL[(Datadog Jobs Monitoring)]
     T0 -.OpenLineage START/terminal.-> OL
@@ -83,22 +89,13 @@ Every Azure ML workspace has an associated Key Vault (`az ml workspace show` lis
 
 ### 4. Environment variables for the driver
 
-```bash
-export AZUREML_SIM_SUBSCRIPTION_ID=<subscription-id>
-export AZUREML_SIM_RESOURCE_GROUP=<resource-group>
-export AZUREML_SIM_WORKSPACE=<workspace-name>
-export AZUREML_SIM_COMPUTE=sim-cluster                 # optional, defaults shown
-export AZUREML_SIM_ENVIRONMENT=azureml:openlineage-job-simulator@latest  # optional
-export AZUREML_SIM_KEYVAULT_URL=https://<your-keyvault>.vault.azure.net/
-export AZUREML_SIM_DD_API_KEY_SECRET=DD-API-KEY        # optional, this is the default
+Copy `azureml/.env.example` to `azureml/.env` and fill it in (it's gitignored, same pattern as the root `.env`):
 
-# Same knobs as .env.example (all optional, shown with defaults):
-export DD_SITE=datadoghq.com
-export DD_SERVICE=openlineage-worker-demo
-export DD_ENV=azureml-demo
-export OL_TRANSPORT=datadog
-export OL_NAMESPACE=demo.datadog.azureml
+```bash
+cp azureml/.env.example azureml/.env
 ```
+
+At minimum, set `AZUREML_SIM_SUBSCRIPTION_ID`, `AZUREML_SIM_RESOURCE_GROUP`, `AZUREML_SIM_WORKSPACE`, and either `AZUREML_SIM_KEYVAULT_URL` (recommended — resolves `DD_API_KEY` from Key Vault at submission time) or `DD_API_KEY` directly (fallback for local iteration, skips step 3 above). `azureml/cli.py` loads this file automatically.
 
 Install the driver-side dependencies and authenticate:
 
