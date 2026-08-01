@@ -88,10 +88,9 @@ def emit_terminal(*, namespace, name, run_id, job_type, ol_service, run_facets,
             raise RuntimeError(message)
         except RuntimeError:
             stack_trace = traceback.format_exc()
-
-        log.error("job failed", exc_info=True, extra={
-            "run_id": run_id, "job_name": name, "job_namespace": namespace, "job_type": job_type,
-        })
+            log.error("job failed", exc_info=True, extra={
+                "run_id": run_id, "job_name": name, "job_namespace": namespace, "job_type": job_type,
+            })
         olc.emit_terminal(
             client, namespace=namespace, name=name, run_id=run_id, job_type=job_type,
             ol_service=ol_service, state="FAIL",
