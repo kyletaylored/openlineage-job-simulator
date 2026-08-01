@@ -51,13 +51,28 @@ _BASE_ENV_VARS = {
     "LOG_SHIP_MODE": "agent" if _USE_SERVERLESS_INIT else "http",
     "LOG_LEVEL": os.environ.get("LOG_LEVEL", "INFO"),
 }
+if _USE_SERVERLESS_INIT:
+    # Per https://docs.datadoghq.com/serverless/azure_container_apps/in_container/python/ --
+    # datadog-init does NOT forward stdout/stderr to Datadog Logs unless this
+    # is explicitly set (it defaults to false). Without it, LOG_SHIP_MODE=agent
+    # above ships nothing at all.
+    _BASE_ENV_VARS["DD_LOGS_ENABLED"] = "true"
+    _BASE_ENV_VARS["DD_LOGS_INJECTION"] = os.environ.get("DD_LOGS_INJECTION", "true")
 
 
 def _wrap(cmd: str) -> str:
-    """Prefixes a step's command with the datadog-init wrapper, when enabled."""
+    """Prefixes a step's command with the datadog-init + ddtrace-run wrapper,
+    when enabled -- matching Datadog's documented in-container pattern
+    (https://docs.datadoghq.com/serverless/azure_container_apps/in_container/python/):
+    `datadog-init` as the top-level process, `ddtrace-run` as its argument.
+    ddtrace-run is only meaningful alongside datadog-init here, since
+    datadog-init is what runs the local trace agent ddtrace sends spans to --
+    there's no host Datadog Agent on AmlCompute for it to reach otherwise.
+    No spans are created by this code yet (APM is still a deferred phase);
+    this just wires the pipe through for when that lands."""
     if not _USE_SERVERLESS_INIT:
         return cmd
-    return f"/app/datadog-init {cmd}"
+    return f"/app/datadog-init ddtrace-run {cmd}"
 
 
 def _resolve_dd_api_key() -> dict:

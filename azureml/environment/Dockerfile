@@ -27,3 +27,9 @@ COPY --from=dd-init /datadog-init /app/datadog-init
 RUN chmod +x /app/datadog-init
 
 ENV PYTHONPATH=/app
+# Recommended alongside datadog-init (see
+# https://docs.datadoghq.com/serverless/azure_container_apps/in_container/python/):
+# unbuffered stdout so logs reach datadog-init immediately, and DD_SOURCE for
+# Python-specific log pipeline parsing.
+ENV PYTHONUNBUFFERED=1
+ENV DD_SOURCE=python

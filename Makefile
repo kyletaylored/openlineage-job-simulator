@@ -1,4 +1,4 @@
-.PHONY: help setup run run-plain stop clean
+.PHONY: help setup run run-plain stop clean azureml-setup azureml-rebuild-env azureml-submit
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -19,5 +19,15 @@ stop: ## Kill a leftover background instance
 
 clean: ## Remove .venv
 	rm -rf .venv
+
+azureml-setup: ## Install Azure ML driver deps, copy azureml/.env.example -> azureml/.env
+	uv pip install -r azureml/requirements-azureml.txt
+	test -f azureml/.env || cp azureml/.env.example azureml/.env
+
+azureml-rebuild-env: ## Rebuild+re-register the Azure ML environment (Docker image), bump azureml/.env
+	uv run --env-file azureml/.env -- python -m azureml.rebuild_env
+
+azureml-submit: ## Submit a simulated request as an Azure ML pipeline job (pass flags via ARGS="...")
+	uv run --env-file azureml/.env -- python -m azureml.cli $(ARGS)
 
 .DEFAULT_GOAL := help
