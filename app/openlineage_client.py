@@ -16,6 +16,7 @@ from openlineage.client.facet_v2 import (
     parent_run,
     tags_job,
 )
+from openlineage.client.serde import Serde
 from openlineage.client.uuid import generate_new_uuid
 
 from app import config
@@ -141,6 +142,7 @@ def emit_start(client: OpenLineageClient, *, namespace: str, name: str, run_id: 
         inputs=inputs,
         outputs=outputs,
     )
+    log.debug("OpenLineage START payload: %s", Serde.to_json(event))
     client.emit(event)
     log.info("emitted OpenLineage START", extra={
              "run_id": run_id, "job_name": name})
@@ -165,6 +167,7 @@ def emit_terminal(client: OpenLineageClient, *, namespace: str, name: str, run_i
         job=job,
         producer=config.OL_PRODUCER,
     )
+    log.debug("OpenLineage %s payload: %s", state, Serde.to_json(event))
     client.emit(event)
     log.info("emitted OpenLineage %s", state, extra={
              "run_id": run_id, "job_name": name})
