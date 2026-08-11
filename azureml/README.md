@@ -59,6 +59,39 @@ azureml/
 
 `app/openlineage_client.py`, `app/logging_setup.py`, and `app/config.py` are reused as a library. `job_facets`/`emit_start`/`emit_terminal` accept an optional `aml_job_name` kwarg, and `logging_setup.py` stamps `azureml.job_name` on every log line (from the `AZUREML_RUN_ID` env var Azure ML injects automatically) — this lets you pivot from a Datadog OpenLineage run or log line to the exact Azure ML Studio job page.
 
+## Compute architecture
+
+Everything below is provisioned once (see "One-time setup") and then reused by every pipeline run. There's one compute cluster and one environment image for the whole demo — a run's fan-out shape only changes how many containers get scheduled onto that cluster, not what's provisioned.
+
+```mermaid
+flowchart TB
+    subgraph sub["Azure subscription / resource group"]
+        subgraph ws["Azure ML workspace"]
+            kv[("Key Vault<br/>DD-API-KEY secret")]
+            env["Environment image: openlineage-job-simulator<br/>(built once from azureml/environment/Dockerfile,<br/>contains app code + datadog-init binary)"]
+            subgraph cluster["sim-cluster — AmlCompute<br/>min_instances=0, max_instances=4 (autoscaling)"]
+                vm1["VM node"]
+                vm2["VM node"]
+                vm3["VM node<br/>(idle when unused — scales to 0)"]
+            end
+        end
+    end
+
+    driver["Driver process<br/>python -m azureml.cli / make azureml-submit"]
+    driver -- "1: DefaultAzureCredential resolves DD_API_KEY" --> kv
+    driver -- "2: builds DAG in-process, submits pipeline job" --> ws
+    ws -- "3: schedules one ephemeral container per step" --> cluster
+    env -. "same image pulled for every step's container" .-> vm1
+    env -. "same image pulled for every step's container" .-> vm2
+```
+
+Points worth calling out:
+
+- **One cluster, many containers.** `sim-cluster` is a shared, autoscaling `AmlCompute` pool (`az ml compute create ... --min-instances 0 --max-instances 4`). Azure ML — not this codebase — decides which VM node each step's container lands on; `submit_pipeline.py` never targets a specific node.
+- **One image, many containers.** Every step (`controller_start`, `worker_*_start/finalize`, `task_*`) runs the *same* `openlineage-job-simulator` environment image, registered once via `az ml environment create`. What differs per step is only the `command:` string and `inputs`/`environment_variables` `submit_pipeline.py` passes in — not the image.
+- **Container lifetime = step lifetime.** Each step gets a fresh container that starts, runs its one command (e.g. `python -m azureml.steps.run_node_start ...`), and exits — there's no long-lived container reused across steps, and no host-level process (like a Datadog Agent) surviving between them.
+- **Secret resolution happens on the driver, not in a container.** `DD_API_KEY` is pulled from Key Vault by the submitting process under your own `az login` identity and injected into each step's `environment_variables` at submission time — no container ever talks to Key Vault itself.
+
 ## One-time setup
 
 ### 1. Workspace + compute cluster
@@ -136,6 +169,12 @@ Every step's container runs [`datadog-init`](https://docs.datadoghq.com/serverle
 **This is not documented or supported by Datadog for Azure ML** — only Container Apps and App Service Linux containers are. It's wired in as a command prefix rather than a Dockerfile `ENTRYPOINT` because Azure ML likely execs a step's `command:` directly, and may not honor an image's own `ENTRYPOINT`. Conceptually it should fit reasonably well — `datadog-init` is built for short-lived, invocation-style processes that start, do work, flush telemetry, and exit, which is close to a batch job step's lifecycle — but treat its behavior (env var propagation, flush-on-exit timing, whether it survives a job timeout/kill) as unverified until smoke-tested against a real run.
 
 Because `datadog-init` captures and forwards each step's stdout itself, `LOG_SHIP_MODE` is automatically set to `agent` (stdout only) instead of `http` when serverless-init is enabled, to avoid shipping the same logs twice.
+
+### Why this isn't a sidecar container
+
+`datadog-init` runs *inside* each step's single container as a wrapped process (`/app/datadog-init ddtrace-run python -m azureml.steps...`), not as a second container next to it — because Azure ML's `command` job doesn't have a slot for one. The [CLI v2 command-job YAML schema](https://learn.microsoft.com/en-us/azure/machine-learning/reference-yaml-job-command?view=azureml-api-2) takes exactly one `environment` (one image) per job/step, on both `AmlCompute` and Kubernetes compute; there's no `containers:` list or sidecar field to declare a second one. (True multi-container "sidecar" support in Azure ML is a managed-online-endpoint concept — real-time model serving deployments — and doesn't extend to batch/pipeline command jobs like these.)
+
+So the only way to run something alongside a step's main process is what's done here: bake it into the same environment image (`environment/Dockerfile` copies in the `datadog-init` binary) and launch it as the top-level process that then execs your real command. If you needed a *different* always-on companion process per step, the same pattern applies — add it to the Dockerfile and prefix/background it in the step's `command:` string in `submit_pipeline.py`; there's no separate container to configure.
 
 ## Deferred: APM distributed tracing
 
