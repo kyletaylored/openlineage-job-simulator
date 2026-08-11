@@ -50,6 +50,10 @@ _BASE_ENV_VARS = {
     # is disabled, since then nothing else is tailing stdout.
     "LOG_SHIP_MODE": "agent" if _USE_SERVERLESS_INIT else "http",
     "LOG_LEVEL": os.environ.get("LOG_LEVEL", "INFO"),
+    # ddtrace's own startup/flush logging -- set true to see whether it finds
+    # datadog-init's local trace agent and actually flushes spans, versus
+    # dropping them silently. Verbose; leave false outside active debugging.
+    "DD_TRACE_DEBUG": os.environ.get("DD_TRACE_DEBUG", "false"),
 }
 if _USE_SERVERLESS_INIT:
     # Per https://docs.datadoghq.com/serverless/azure_container_apps/in_container/python/ --

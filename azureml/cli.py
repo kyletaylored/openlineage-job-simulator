@@ -36,7 +36,7 @@ def parse_args():
     p.add_argument("--worker-failure-rate", type=float, default=0)
     p.add_argument("--task-duration-min", type=float, default=60)
     p.add_argument("--task-duration-max", type=float, default=120)
-    p.add_argument("--task-failure-rate", type=float, default=10)
+    p.add_argument("--task-failure-rate", type=float, default=0)
     p.add_argument("--force-fail-controller", action="store_true")
     p.add_argument("--force-fail-worker", action="store_true")
     p.add_argument("--force-fail-task", action="store_true")
