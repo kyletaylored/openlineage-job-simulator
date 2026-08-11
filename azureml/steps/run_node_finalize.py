@@ -40,26 +40,28 @@ def main():
     args = parse_args()
     common.configure()
 
-    child_statuses = [common.read_status(path) for path in args.child_status]
-    any_child_failed = any(s["status"] == "FAIL" for s in child_statuses)
+    resource = "controller_finalize" if args.job_type == "JOB" else "worker_finalize"
+    with common.traced_step(resource, run_id=args.run_id, name=args.name):
+        child_statuses = [common.read_status(path) for path in args.child_status]
+        any_child_failed = any(s["status"] == "FAIL" for s in child_statuses)
 
-    will_fail = common.decide_failure(
-        force_fail=args.force_fail, failure_rate=args.failure_rate,
-        any_child_failed=any_child_failed, fail_on_child_fail=args.fail_on_child_fail,
-    )
+        will_fail = common.decide_failure(
+            force_fail=args.force_fail, failure_rate=args.failure_rate,
+            any_child_failed=any_child_failed, fail_on_child_fail=args.fail_on_child_fail,
+        )
 
-    run_facets = common.build_run_facets(
-        parent_run_id=args.parent_run_id, parent_name=args.parent_name,
-        root_run_id=args.root_run_id, root_name=args.root_name,
-        namespace=args.namespace,
-    )
-    status, error_message = common.emit_terminal(
-        namespace=args.namespace, name=args.name, run_id=args.run_id,
-        job_type=args.job_type, ol_service=common.ol_service_name(args.job_type),
-        run_facets=run_facets, will_fail=will_fail, any_child_failed=any_child_failed,
-        fail_on_child_fail=args.fail_on_child_fail, role_label=args.role_label,
-    )
-    common.write_status(args.status_out, status, error_message)
+        run_facets = common.build_run_facets(
+            parent_run_id=args.parent_run_id, parent_name=args.parent_name,
+            root_run_id=args.root_run_id, root_name=args.root_name,
+            namespace=args.namespace,
+        )
+        status, error_message = common.emit_terminal(
+            namespace=args.namespace, name=args.name, run_id=args.run_id,
+            job_type=args.job_type, ol_service=common.ol_service_name(args.job_type),
+            run_facets=run_facets, will_fail=will_fail, any_child_failed=any_child_failed,
+            fail_on_child_fail=args.fail_on_child_fail, role_label=args.role_label,
+        )
+        common.write_status(args.status_out, status, error_message)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 A demo job pipeline that fans a controller out to N workers, each of which fans out to M tasks, running as real Azure Machine Learning pipeline jobs — every node is its own Azure ML job with a native parent/child relationship in Studio's job graph — while emitting OpenLineage events and correlated logs to Datadog Jobs Monitoring.
 
-**Scope: OpenLineage + Logs only.** APM distributed tracing (ddtrace spans connected across separate Azure ML job containers) is not implemented here — it's a follow-up phase. No ddtrace spans are opened by any script in this directory; `dd.trace_id`/`dd.span_id` log fields simply won't appear on logs from this path (that's expected, not a bug). Each step's container does run Datadog's `serverless-init` as an experimental add-on (see below) — that's an unverified log/metrics/trace-forwarding path, not a substitute for the deferred distributed-tracing work.
+**Scope: OpenLineage + Logs + single-container APM spans.** Each step opens one ddtrace span for its own work (`azureml/steps/common.py`'s `traced_step()`), tagged with its OpenLineage `run_id`/job name for cross-referencing a trace to its run in Data Jobs Monitoring. What's still a follow-up phase is *distributed* tracing — linking those per-container spans into one trace across the controller/worker/task hierarchy, which needs explicit trace-context propagation (see "Deferred: APM distributed tracing" below). Each step's container runs Datadog's `serverless-init` as an experimental add-on (see below) to actually forward those spans — that forwarding path is unverified until smoke-tested against a real run.
 
 ## How it works
 
@@ -178,4 +178,4 @@ So the only way to run something alongside a step's main process is what's done 
 
 ## Deferred: APM distributed tracing
 
-Connecting real ddtrace spans across separate pipeline step containers needs distributed trace-context propagation (`ddtrace.Context(trace_id=..., span_id=...)` reconstructed from ids passed as step parameters, the same pattern ddtrace uses for HTTP headers) and resolving whether ddtrace needs a reachable Datadog Agent (none exists on `AmlCompute`) or can run in agentless/HTTP-intake mode. Smoke-test that in a minimal 2-step pipeline before building it out — it's the highest-risk piece of that follow-up phase, not part of this one.
+Each step already opens its own span (`common.traced_step()`) — what's still deferred is connecting those spans *across* separate pipeline step containers into one distributed trace. That needs explicit trace-context propagation (`ddtrace.Context(trace_id=..., span_id=...)` reconstructed from ids passed as step parameters, the same pattern ddtrace uses for HTTP headers) and resolving whether ddtrace needs a reachable Datadog Agent (none exists on `AmlCompute`) or can run in agentless/HTTP-intake mode. Smoke-test that in a minimal 2-step pipeline before building it out — it's the highest-risk piece of that follow-up phase, not part of this one.

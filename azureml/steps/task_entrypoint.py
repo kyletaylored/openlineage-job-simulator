@@ -31,29 +31,30 @@ def main():
     args = parse_args()
     common.configure()
 
-    run_facets = common.build_run_facets(
-        parent_run_id=args.parent_run_id, parent_name=args.parent_name,
-        root_run_id=args.root_run_id, root_name=args.root_name,
-        namespace=args.namespace,
-    )
-    common.emit_start(
-        namespace=args.namespace, name=args.name, run_id=args.run_id,
-        job_type="TASK", ol_service=common.ol_service_name("TASK"),
-        run_facets=run_facets,
-    )
-    time.sleep(random.uniform(args.duration_min, args.duration_max))
+    with common.traced_step("task", run_id=args.run_id, name=args.name):
+        run_facets = common.build_run_facets(
+            parent_run_id=args.parent_run_id, parent_name=args.parent_name,
+            root_run_id=args.root_run_id, root_name=args.root_name,
+            namespace=args.namespace,
+        )
+        common.emit_start(
+            namespace=args.namespace, name=args.name, run_id=args.run_id,
+            job_type="TASK", ol_service=common.ol_service_name("TASK"),
+            run_facets=run_facets,
+        )
+        time.sleep(random.uniform(args.duration_min, args.duration_max))
 
-    will_fail = common.decide_failure(
-        force_fail=args.force_fail, failure_rate=args.failure_rate,
-        any_child_failed=False, fail_on_child_fail=False,
-    )
-    status, error_message = common.emit_terminal(
-        namespace=args.namespace, name=args.name, run_id=args.run_id,
-        job_type="TASK", ol_service=common.ol_service_name("TASK"),
-        run_facets=run_facets, will_fail=will_fail, any_child_failed=False,
-        fail_on_child_fail=False, role_label="task",
-    )
-    common.write_status(args.status_out, status, error_message)
+        will_fail = common.decide_failure(
+            force_fail=args.force_fail, failure_rate=args.failure_rate,
+            any_child_failed=False, fail_on_child_fail=False,
+        )
+        status, error_message = common.emit_terminal(
+            namespace=args.namespace, name=args.name, run_id=args.run_id,
+            job_type="TASK", ol_service=common.ol_service_name("TASK"),
+            run_facets=run_facets, will_fail=will_fail, any_child_failed=False,
+            fail_on_child_fail=False, role_label="task",
+        )
+        common.write_status(args.status_out, status, error_message)
 
 
 if __name__ == "__main__":

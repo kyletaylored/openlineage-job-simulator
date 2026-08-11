@@ -68,8 +68,9 @@ def _wrap(cmd: str) -> str:
     ddtrace-run is only meaningful alongside datadog-init here, since
     datadog-init is what runs the local trace agent ddtrace sends spans to --
     there's no host Datadog Agent on AmlCompute for it to reach otherwise.
-    No spans are created by this code yet (APM is still a deferred phase);
-    this just wires the pipe through for when that lands."""
+    Each step opens its own span (see azureml/steps/common.py's
+    traced_step()); this is the pipe those spans travel through to reach
+    datadog-init's local trace agent."""
     if not _USE_SERVERLESS_INIT:
         return cmd
     return f"/app/datadog-init ddtrace-run {cmd}"

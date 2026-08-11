@@ -35,17 +35,19 @@ def main():
     args = parse_args()
     common.configure()
 
-    run_facets = common.build_run_facets(
-        parent_run_id=args.parent_run_id, parent_name=args.parent_name,
-        root_run_id=args.root_run_id, root_name=args.root_name,
-        namespace=args.namespace,
-    )
-    common.emit_start(
-        namespace=args.namespace, name=args.name, run_id=args.run_id,
-        job_type=args.job_type, ol_service=common.ol_service_name(args.job_type),
-        run_facets=run_facets,
-    )
-    time.sleep(random.uniform(args.duration_min, args.duration_max))
+    resource = "controller_start" if args.job_type == "JOB" else "worker_start"
+    with common.traced_step(resource, run_id=args.run_id, name=args.name):
+        run_facets = common.build_run_facets(
+            parent_run_id=args.parent_run_id, parent_name=args.parent_name,
+            root_run_id=args.root_run_id, root_name=args.root_name,
+            namespace=args.namespace,
+        )
+        common.emit_start(
+            namespace=args.namespace, name=args.name, run_id=args.run_id,
+            job_type=args.job_type, ol_service=common.ol_service_name(args.job_type),
+            run_facets=run_facets,
+        )
+        time.sleep(random.uniform(args.duration_min, args.duration_max))
 
 
 if __name__ == "__main__":

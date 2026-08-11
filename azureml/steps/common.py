@@ -10,14 +10,19 @@ failure-decision math is duplicated here as a small pure function rather
 than imported, to keep this package's only dependency on app/ being the
 OpenLineage client + logging setup.
 
-No ddtrace spans are opened here -- APM distributed tracing across separate
-pipeline step containers is deferred to a follow-up phase.
+traced_step() opens one span per container for that step's own work, so each
+step produces a standalone trace ddtrace-run/datadog-init can forward.
+Linking those spans across separate containers into one distributed trace
+(shared trace_id, parent/child context passed like the OpenLineage run_ids
+are) is still deferred to a follow-up phase -- see azureml/README.md.
 """
 import json
 import logging
 import os
 import random
 import traceback
+
+from ddtrace import tracer
 
 from app import config, logging_setup
 from app import openlineage_client as olc
@@ -45,6 +50,17 @@ def aml_job_name() -> str:
 def ol_service_name(job_type: str) -> str:
     suffix = "controller" if job_type == "JOB" else "worker"
     return f"{config.DD_SERVICE}-{suffix}"
+
+
+def traced_step(resource: str, *, run_id: str, name: str):
+    """Opens a span for this step's own work, tagged with the OpenLineage
+    run_id/job name so a trace in APM can be cross-referenced to its run in
+    Data Jobs Monitoring. Caller is responsible for closing it (use as a
+    context manager)."""
+    span = tracer.trace("azureml.step", service=config.DD_SERVICE, resource=resource)
+    span.set_tag("run_id", run_id)
+    span.set_tag("job_name", name)
+    return span
 
 
 def build_run_facets(*, parent_run_id, parent_name, root_run_id, root_name, namespace):
